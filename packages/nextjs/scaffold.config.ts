@@ -11,9 +11,18 @@ export type ScaffoldConfig = {
 
 export const DEFAULT_ALCHEMY_API_KEY = "cR4WnXePioePZ5fFrnSiR";
 
+const customHardhat = {
+  ...chains.hardhat,
+  rpcUrls: {
+    ...chains.hardhat.rpcUrls,
+    default: { http: ["http://10.157.24.48:8545"] },
+    public: { http: ["http://10.157.24.48:8545"] },
+  },
+} as const satisfies chains.Chain;
+
 const scaffoldConfig = {
   // The networks on which your DApp is live
-  targetNetworks: [chains.hardhat],
+  targetNetworks: [customHardhat],
 
   // The interval at which your front-end polls the RPC servers for new data
   // it has no effect if you only target the local network (default is 4000)
@@ -29,7 +38,7 @@ const scaffoldConfig = {
   // The key is the chain ID, and the value is the HTTP RPC URL
   rpcOverrides: {
     // Example:
-    // [chains.mainnet.id]: "https://mainnet.rpc.buidlguidl.com",
+    [customHardhat.id]: "http://10.157.24.48:8545",
   },
 
   // This is ours WalletConnect's default project ID.
@@ -42,7 +51,7 @@ const scaffoldConfig = {
   // - "localOnly": only show when all target networks are local (hardhat/anvil)
   // - "allNetworks": show on any configured target networks
   // - "disabled": completely disable
-  burnerWalletMode: "localNetworksOnly",
+  burnerWalletMode: "allNetworks",
 } as const satisfies ScaffoldConfig;
 
 export default scaffoldConfig;

@@ -1,80 +1,69 @@
+"use client";
+
 import React from "react";
 import Link from "next/link";
-import { useFetchNativeCurrencyPrice } from "@scaffold-ui/hooks";
-import { hardhat } from "viem/chains";
-import { CurrencyDollarIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
-import { HeartIcon } from "@heroicons/react/24/outline";
-import { SwitchTheme } from "~~/components/SwitchTheme";
-import { BuidlGuidlLogo } from "~~/components/assets/BuidlGuidlLogo";
-import { Faucet } from "~~/components/scaffold-eth";
-import { useTargetNetwork } from "~~/hooks/scaffold-eth/useTargetNetwork";
+import { usePathname } from "next/navigation";
+import { HomeIcon, UserIcon } from "@heroicons/react/24/outline";
+import { useBleStore } from "~~/services/store/useBLEstore";
 
-/**
- * Site footer
- */
 export const Footer = () => {
-  const { targetNetwork } = useTargetNetwork();
-  const isLocalNetwork = targetNetwork.id === hardhat.id;
-  const { price: nativeCurrencyPrice } = useFetchNativeCurrencyPrice();
+  const pathname = usePathname();
+  // Ambil state dan fungsi dari Zustand
+  const { deviceId, connectToRVM, disconnectRVM } = useBleStore();
 
   return (
-    <div className="min-h-0 py-5 px-1 mb-11 lg:mb-0">
-      <div>
-        <div className="fixed flex justify-between items-center w-full z-10 p-4 bottom-0 left-0 pointer-events-none">
-          <div className="flex flex-col md:flex-row gap-2 pointer-events-auto">
-            {nativeCurrencyPrice > 0 && (
-              <div>
-                <div className="btn btn-primary btn-sm font-normal gap-1 cursor-auto">
-                  <CurrencyDollarIcon className="h-4 w-4" />
-                  <span>{nativeCurrencyPrice.toFixed(2)}</span>
-                </div>
-              </div>
-            )}
-            {isLocalNetwork && (
-              <>
-                <Faucet />
-                <Link href="/blockexplorer" passHref className="btn btn-primary btn-sm font-normal gap-1">
-                  <MagnifyingGlassIcon className="h-4 w-4" />
-                  <span>Block Explorer</span>
-                </Link>
-              </>
-            )}
-          </div>
-          <SwitchTheme className={`pointer-events-auto ${isLocalNetwork ? "self-end md:self-auto" : ""}`} />
-        </div>
+    // Mengubah pembungkus luar menjadi flex-col agar elemen menumpuk ke bawah
+    <div className="fixed bottom-0 w-full z-50 flex flex-col items-center pb-2 px-4 pointer-events-none">
+      {/* KOTAK NAVIGASI UTAMA (Ditambah mb-2 agar ada jarak dengan teks bawah) */}
+      <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.15)] border border-gray-100 h-16 w-full max-w-md flex items-center justify-between px-8 pointer-events-auto relative mb-2">
+        <Link
+          href="/"
+          className={`flex flex-col items-center transition-colors ${pathname === "/" ? "text-[#0288D1]" : "text-gray-400 hover:text-gray-600"}`}
+        >
+          <HomeIcon className="w-6 h-6" />
+          <span className="text-[10px] mt-1 font-semibold">Home</span>
+        </Link>
+
+        {/* FAB TOMBOL SCANNER */}
+        <button
+          onClick={deviceId ? disconnectRVM : connectToRVM}
+          className={`absolute left-1/2 -translate-x-1/2 -top-6 text-white p-4 rounded-2xl shadow-lg transition-transform active:scale-95 flex items-center justify-center
+            ${deviceId ? "bg-red-500 hover:bg-red-600 shadow-red-500/40" : "bg-[#0288D1] hover:bg-[#0277BD] shadow-blue-500/40"}
+          `}
+        >
+          {deviceId ? (
+            // Icon X (Stop) jika sudah terhubung
+            <svg fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-8 h-8">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : (
+            // Icon Scanner jika belum terhubung
+            <svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5zM18 14.625v4.5m-2.25-2.25h4.5"
+              />
+            </svg>
+          )}
+        </button>
+
+        <Link
+          href="/profile"
+          className={`flex flex-col items-center transition-colors ${pathname === "/profile" ? "text-[#0288D1]" : "text-gray-400 hover:text-gray-600"}`}
+        >
+          <UserIcon className="w-6 h-6" />
+          <span className="text-[10px] mt-1 font-semibold">Profile</span>
+        </Link>
       </div>
-      <div className="w-full">
-        <ul className="menu menu-horizontal w-full">
-          <div className="flex justify-center items-center gap-2 text-sm w-full">
-            <div className="text-center">
-              <a href="https://github.com/scaffold-eth/se-2" target="_blank" rel="noreferrer" className="link">
-                Fork me
-              </a>
-            </div>
-            <span>·</span>
-            <div className="flex justify-center items-center gap-2">
-              <p className="m-0 text-center">
-                Built with <HeartIcon className="inline-block h-4 w-4" /> at
-              </p>
-              <a
-                className="flex justify-center items-center gap-1"
-                href="https://buidlguidl.com/"
-                target="_blank"
-                rel="noreferrer"
-              >
-                <BuidlGuidlLogo className="w-3 h-5 pb-1" />
-                <span className="link">BuidlGuidl</span>
-              </a>
-            </div>
-            <span>·</span>
-            <div className="text-center">
-              <a href="https://t.me/joinchat/KByvmRe5wkR-8F_zz6AjpA" target="_blank" rel="noreferrer" className="link">
-                Support
-              </a>
-            </div>
-          </div>
-        </ul>
-      </div>
+
+      {/* TAUTAN MIKRO ADMIN (Pintu Rahasia) */}
+      <Link
+        href="/admin"
+        className="text-[9px] text-gray-400 hover:text-[#0288D1] pointer-events-auto transition-colors font-medium tracking-wide"
+      >
+        Ingin memasang RVM di komunitas Anda? <span className="underline decoration-dashed">Daftar di sini</span>
+      </Link>
     </div>
   );
 };

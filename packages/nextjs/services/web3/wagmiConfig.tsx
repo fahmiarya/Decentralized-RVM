@@ -19,13 +19,19 @@ export const wagmiConfig = createConfig({
   client({ chain }) {
     // Extra fallback for mainnet.
     const mainnetFallbackWithDefaultRPC = [http("https://mainnet.rpc.buidlguidl.com")];
-    let rpcFallbacks = [...(chain.id === mainnet.id ? mainnetFallbackWithDefaultRPC : []), http()];
+
+    // 1. HAPUS http() dari sini
+    let rpcFallbacks = [...(chain.id === mainnet.id ? mainnetFallbackWithDefaultRPC : [])];
 
     const rpcOverrideUrl = (scaffoldConfig.rpcOverrides as ScaffoldConfig["rpcOverrides"])?.[chain.id];
 
     if (rpcOverrideUrl) {
-      rpcFallbacks = [http(rpcOverrideUrl), ...rpcFallbacks];
+      // 2. Jika ada IP laptop di config, HANYA gunakan IP laptop itu. Jangan gabung dengan yang lain.
+      rpcFallbacks = [http(rpcOverrideUrl)];
     } else {
+      // 3. Jika tidak ada IP, baru masukkan http() bawaan
+      rpcFallbacks.push(http());
+
       const alchemyHttpUrl = getAlchemyHttpUrl(chain.id);
       if (alchemyHttpUrl) {
         const isUsingDefaultKey = scaffoldConfig.alchemyApiKey === DEFAULT_ALCHEMY_API_KEY;

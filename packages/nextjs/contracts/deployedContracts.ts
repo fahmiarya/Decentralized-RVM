@@ -4,6 +4,117 @@
  */
 import { GenericContractsDeclaration } from "~~/utils/scaffold-eth/contract";
 
-const deployedContracts = {} as const;
+const deployedContracts = {
+  31337: {
+    RVMFactory: {
+      address: "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+      abi: [
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "address",
+              name: "communityAddress",
+              type: "address",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "owner",
+              type: "address",
+            },
+            {
+              indexed: false,
+              internalType: "bool",
+              name: "isOpen",
+              type: "bool",
+            },
+          ],
+          name: "CommunityCreated",
+          type: "event",
+        },
+        {
+          inputs: [
+            {
+              internalType: "string",
+              name: "name",
+              type: "string",
+            },
+            {
+              internalType: "string",
+              name: "symbol",
+              type: "string",
+            },
+            {
+              internalType: "uint256",
+              name: "ratePlastic",
+              type: "uint256",
+            },
+            {
+              internalType: "uint256",
+              name: "rateMetal",
+              type: "uint256",
+            },
+            {
+              internalType: "bool",
+              name: "isOpenCommunity",
+              type: "bool",
+            },
+            {
+              internalType: "address",
+              name: "marketTokenAddress",
+              type: "address",
+            },
+          ],
+          name: "createCommunity",
+          outputs: [
+            {
+              internalType: "address",
+              name: "",
+              type: "address",
+            },
+          ],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "uint256",
+              name: "",
+              type: "uint256",
+            },
+          ],
+          name: "deployedCommunities",
+          outputs: [
+            {
+              internalType: "address",
+              name: "",
+              type: "address",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "getDeployedCommunities",
+          outputs: [
+            {
+              internalType: "address[]",
+              name: "",
+              type: "address[]",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+      ],
+      inheritedFunctions: {},
+      deployedOnBlock: 15,
+    },
+  },
+} as const;
 
 export default deployedContracts satisfies GenericContractsDeclaration;

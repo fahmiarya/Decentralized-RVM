@@ -3,42 +3,57 @@ import { DeployFunction } from "hardhat-deploy/types";
 import { Contract } from "ethers";
 
 /**
- * Deploys a contract named "YourContract" using the deployer account and
- * constructor arguments set to the deployer address
- *
- * @param hre HardhatRuntimeEnvironment object.
+ * Script untuk mende-deploy RVMFactory dan membuat instansi komunitas pertama.
  */
-const deployYourContract: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  /*
-    On localhost, the deployer account is the one that comes with Hardhat, which is already funded.
-
-    When deploying to live networks (e.g `yarn deploy --network sepolia`), the deployer account
-    should have sufficient balance to pay for the gas fees for contract creation.
-
-    You can generate a random account with `yarn generate` or `yarn account:import` to import your
-    existing PK which will fill DEPLOYER_PRIVATE_KEY_ENCRYPTED in the .env file (then used on hardhat.config.ts)
-    You can run the `yarn account` command to check your balance in every network.
-  */
+const deployRVMSystem: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await hre.getNamedAccounts();
   const { deploy } = hre.deployments;
 
-  await deploy("YourContract", {
+  console.log("\n🚀 Memulai deployment sistem RVM oleh:", deployer);
+
+  // 1. Deploy Kontrak Utama (RVMFactory)
+  // RVMFactory tidak membutuhkan argumen constructor
+  await deploy("RVMFactory", {
     from: deployer,
-    // Contract constructor arguments
-    args: [deployer],
+    args: [],
     log: true,
-    // autoMine: can be passed to the deploy function to make the deployment process faster on local networks by
-    // automatically mining the contract deployment transaction. There is no effect on live networks.
     autoMine: true,
   });
 
-  // Get the deployed contract to interact with it after deploying.
-  const yourContract = await hre.ethers.getContract<Contract>("YourContract", deployer);
-  console.log("👋 Initial greeting:", await yourContract.greeting());
+  // 2. Dapatkan instansi RVMFactory yang baru saja di-deploy
+  const rvmFactory = await hre.ethers.getContract<Contract>("RVMFactory", deployer);
+  const factoryAddress = await rvmFactory.getAddress();
+  console.log("✅ RVMFactory berhasil di-deploy pada alamat:", factoryAddress);
+
+  // 3. (Opsional tapi sangat disarankan)
+  // Langsung cetak 1 Komunitas pertama agar mudah di-debug di web Scaffold-ETH
+  console.log("\n⚙️ Mencetak Komunitas RVM pertama (Node A)...");
+
+  // --- BAGIAN YANG DIPERBARUI ---
+  // Parameter: Nama Token, Simbol Token, Rate Plastik, Rate Metal, isOpenCommunity, marketTokenAddress
+  // Kita set default: Terbuka (true) dan Menggunakan Token Kustom (address 0x0...)
+  const tx = await rvmFactory.createCommunity(
+    "Komunitas RVM Pusat",
+    "RVM",
+    1,
+    5,
+    true, // Status: Open Community
+    "0x0000000000000000000000000000000000000000", // Address 0: Mode Token Kustom
+  );
+
+  await tx.wait(); // Tunggu transaksi selesai masuk ke blockchain
+
+  // 4. Ambil alamat komunitas yang baru dibuat dari fungsi getDeployedCommunities
+  const deployedCommunities = await rvmFactory.getDeployedCommunities();
+  const firstCommunityAddress = deployedCommunities[0];
+
+  console.log("🎉 Komunitas pertama berhasil dicetak!");
+  console.log("📍 Alamat Kontrak Komunitas:", firstCommunityAddress);
+  console.log("👑 Owner Komunitas (Admin):", deployer);
+  console.log("----------------------------------------------------\n");
 };
 
-export default deployYourContract;
+export default deployRVMSystem;
 
-// Tags are useful if you have multiple deploy files and only want to run one of them.
-// e.g. yarn deploy --tags YourContract
-deployYourContract.tags = ["YourContract"];
+// Tag agar bisa dijalankan spesifik dengan `yarn deploy --tags RVMFactory`
+deployRVMSystem.tags = ["RVMFactory"];

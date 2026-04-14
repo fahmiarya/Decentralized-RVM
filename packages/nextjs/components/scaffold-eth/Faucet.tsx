@@ -7,6 +7,7 @@ import { hardhat } from "viem/chains";
 import { useAccount } from "wagmi";
 import { BanknotesIcon } from "@heroicons/react/24/outline";
 import { useTargetNetwork, useTransactor } from "~~/hooks/scaffold-eth";
+import scaffoldConfig from "~~/scaffold.config";
 import { notification } from "~~/utils/scaffold-eth";
 
 // Account index to use from generated hardhat accounts.
@@ -14,7 +15,7 @@ const FAUCET_ACCOUNT_INDEX = 0;
 
 const localWalletClient = createWalletClient({
   chain: hardhat,
-  transport: http(),
+  transport: http(scaffoldConfig.rpcOverrides?.[hardhat.id]),
 });
 
 /**
