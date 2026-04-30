@@ -15,8 +15,8 @@ const customHardhat = {
   ...chains.hardhat,
   rpcUrls: {
     ...chains.hardhat.rpcUrls,
-    default: { http: ["http://10.157.24.48:8545"] },
-    public: { http: ["http://10.157.24.48:8545"] },
+    default: { http: ["http://10.157.24.218:8545"] },
+    public: { http: ["http://10.157.24.218:8545"] },
   },
 } as const satisfies chains.Chain;
 
@@ -38,7 +38,7 @@ const scaffoldConfig = {
   // The key is the chain ID, and the value is the HTTP RPC URL
   rpcOverrides: {
     // Example:
-    [customHardhat.id]: "http://10.157.24.48:8545",
+    [customHardhat.id]: "http://10.157.24.218:8545",
   },
 
   // This is ours WalletConnect's default project ID.

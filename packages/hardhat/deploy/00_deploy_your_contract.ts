@@ -1,18 +1,14 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { DeployFunction } from "hardhat-deploy/types";
-import { Contract } from "ethers";
+import { ethers } from "hardhat";
 
-/**
- * Script untuk mende-deploy RVMFactory dan membuat instansi komunitas pertama.
- */
 const deployRVMSystem: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await hre.getNamedAccounts();
   const { deploy } = hre.deployments;
 
-  console.log("\n🚀 Memulai deployment sistem RVM oleh:", deployer);
+  console.log("🚀 Memulai deployment sistem RVM oleh:", deployer);
 
-  // 1. Deploy Kontrak Utama (RVMFactory)
-  // RVMFactory tidak membutuhkan argumen constructor
+  // 1. Deploy Factory
   await deploy("RVMFactory", {
     from: deployer,
     args: [],
@@ -20,40 +16,51 @@ const deployRVMSystem: DeployFunction = async function (hre: HardhatRuntimeEnvir
     autoMine: true,
   });
 
-  // 2. Dapatkan instansi RVMFactory yang baru saja di-deploy
-  const rvmFactory = await hre.ethers.getContract<Contract>("RVMFactory", deployer);
-  const factoryAddress = await rvmFactory.getAddress();
-  console.log("✅ RVMFactory berhasil di-deploy pada alamat:", factoryAddress);
+  const rvmFactory = await ethers.getContract("RVMFactory", deployer);
 
-  // 3. (Opsional tapi sangat disarankan)
-  // Langsung cetak 1 Komunitas pertama agar mudah di-debug di web Scaffold-ETH
-  console.log("\n⚙️ Mencetak Komunitas RVM pertama (Node A)...");
+  console.log("⚙️ Mencetak Komunitas RVM pertama...");
 
-  // --- BAGIAN YANG DIPERBARUI ---
-  // Parameter: Nama Token, Simbol Token, Rate Plastik, Rate Metal, isOpenCommunity, marketTokenAddress
-  // Kita set default: Terbuka (true) dan Menggunakan Token Kustom (address 0x0...)
-  const tx = await rvmFactory.createCommunity(
-    "Komunitas RVM Pusat",
-    "RVM",
-    1,
-    5,
-    true, // Status: Open Community
-    "0x0000000000000000000000000000000000000000", // Address 0: Mode Token Kustom
+  // 2. Buat Komunitas Pertama
+  const tx1 = await rvmFactory.createCommunity(
+    "Bank Sampah Maju", // Nama
+    "BSM", // Simbol
+    10, // rate plastik
+    15, // rate metal
+    true, // is open
+    ethers.ZeroAddress, // market token (0x00.. untuk pakai token kustom)
+  );
+  await tx1.wait();
+
+  // [PERUBAHAN ADA DI SINI]
+  // 3. Mengambil daftar komunitas menggunakan fungsi yang baru
+  const communities = await rvmFactory.getAllCommunityDetails();
+
+  // Karena sekarang mengembalikan Struct, kita harus ambil properti contractAddress-nya
+  const firstCommunityAddress = communities[0].contractAddress;
+
+  console.log("✅ Komunitas berhasil dibuat di alamat:", firstCommunityAddress);
+
+  // 4. Whitelist ESP32 Anda secara otomatis
+  console.log("🔒 Membuka akses untuk ESP32...");
+
+  // [PERBAIKAN DI SINI]: Ambil signer agar bisa mengirim transaksi
+  const signer = await ethers.getSigner(deployer);
+
+  // Hubungkan signer ke kontrak komunitas
+  const communityContract = await ethers.getContractAt(
+    "CommunityRVM",
+    firstCommunityAddress,
+    signer, // <--- WAJIB sertakan signer di sini
   );
 
-  await tx.wait(); // Tunggu transaksi selesai masuk ke blockchain
+  const esp32Address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
-  // 4. Ambil alamat komunitas yang baru dibuat dari fungsi getDeployedCommunities
-  const deployedCommunities = await rvmFactory.getDeployedCommunities();
-  const firstCommunityAddress = deployedCommunities[0];
+  // Sekarang transaksi pasti bisa terkirim
+  const txWhitelist = await communityContract.setWhitelistedDevice(esp32Address, true);
+  await txWhitelist.wait();
 
-  console.log("🎉 Komunitas pertama berhasil dicetak!");
-  console.log("📍 Alamat Kontrak Komunitas:", firstCommunityAddress);
-  console.log("👑 Owner Komunitas (Admin):", deployer);
-  console.log("----------------------------------------------------\n");
+  console.log(`✅ ESP32 (${esp32Address}) berhasil di-whitelist!`);
 };
 
 export default deployRVMSystem;
-
-// Tag agar bisa dijalankan spesifik dengan `yarn deploy --tags RVMFactory`
 deployRVMSystem.tags = ["RVMFactory"];

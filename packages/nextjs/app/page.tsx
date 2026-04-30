@@ -1,98 +1,278 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { hardhat } from "viem/chains";
-// 1. TAMBAHKAN useWriteContract DI SINI
-import { useAccount, useReadContract, useWriteContract } from "wagmi";
-import { FaucetButton, RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
+import { useAccount, useReadContract } from "wagmi";
+import { BlockieAvatar, FaucetButton, RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useTargetNetwork } from "~~/hooks/scaffold-eth";
+import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { useBleStore } from "~~/services/store/useBLEstore";
-
-// --- DATA DUMMY KOMUNITAS ---
-// TODO: Ganti "0xALAMAT_KOMUNITAS..." dengan alamat kontrak yang Anda dapat dari halaman Admin
-const AVAILABLE_COMMUNITIES = [
-  { id: 1, name: "kopken", tokenSymbol: "KK", address: "0xCafac3dD18aC6c6e92c921884f9E4176737C052c" },
-  { id: 2, name: "omh", tokenSymbol: "omh", address: "0xB7A5bd0345EF1Cc5E66bf61BdeC17D2461fBd968" },
-];
-
-const COMMUNITY_ABI = [
-  {
-    inputs: [
-      { internalType: "uint256", name: "totalPlastic", type: "uint256" },
-      { internalType: "uint256", name: "totalMetal", type: "uint256" },
-      { internalType: "uint256", name: "nonce", type: "uint256" },
-      { internalType: "address", name: "deviceAddress", type: "address" },
-      { internalType: "bytes", name: "signature", type: "bytes" },
-    ],
-    name: "batchClaim",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const;
 
 export default function Home() {
   const { targetNetwork } = useTargetNetwork();
   const isLocalNetwork = targetNetwork.id === hardhat.id;
   const { address: userAddress } = useAccount();
 
-  const [activeCommunity, setActiveCommunity] = useState(AVAILABLE_COMMUNITIES[0]);
+  const [activeCommunity, setActiveCommunity] = useState<any>(null);
+  const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({});
 
-  // 2. PANGGIL latestPayload DAN clearPayload DARI ZUSTAND
-  const { status, sensorData, transactions, latestPayload, clearPayload } = useBleStore();
+  // Mengambil state BLE.
+  // [PERUBAHAN]: Kita panggil 'addTransaction' untuk menyimpan struk (jika Anda punya di store Anda).
+  // Jika tidak punya, kita buat logika sederhana untuk menyimpannya di sini.
+  const { status, latestPayload, clearPayload } = useBleStore();
 
-  // 3. DEKLARASI HOOK WAGMI UNTUK MENULIS KE BLOCKCHAIN
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { data: dynamicCommunities, isLoading } = useScaffoldReadContract({
+    contractName: "RVMFactory",
+    functionName: "getAllCommunityDetails",
+  });
 
-  const findVAndConstructSignature = async (
-    rAndSHex: string,
-    plastic: number,
-    metal: number,
-    nonce: number,
-    espAddress: string,
-  ) => {
-    const { recoverAddress, sha256, encodePacked } = await import("viem");
-
-    // 1. Bersihkan awalan "0x" jika ada, lalu belah menjadi R dan S
-    const cleanRS = rAndSHex.replace("0x", "");
-    const r = cleanRS.slice(0, 64);
-    let s = cleanRS.slice(64, 128);
-
-    // 2. ATURAN EIP-2: Normalisasi "High S" menjadi "Low S"
-    // Ini adalah batas maksimal nilai kurva Ethereum (secp256k1)
-    const SECP256K1_N = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141");
-    const HALF_N = SECP256K1_N / 2n;
-
-    let sBigInt = BigInt("0x" + s);
-    if (sBigInt > HALF_N) {
-      console.log("⚠️ Terdeteksi 'High S' dari ESP32! Melakukan perbaikan matematis...");
-      // Rumus membalik bayangan: S_baru = N - S_lama
-      sBigInt = SECP256K1_N - sBigInt;
-      // Kembalikan ke wujud Hex 64 karakter
-      s = sBigInt.toString(16).padStart(64, "0");
+  useEffect(() => {
+    if (dynamicCommunities && dynamicCommunities.length > 0 && !activeCommunity) {
+      setActiveCommunity(dynamicCommunities[0]);
     }
+  }, [dynamicCommunities, activeCommunity]);
 
-    // Gabungkan kembali R dan S yang sudah suci
-    const normalizedRAndS = `0x${r}${s}`;
-
-    // 3. Hash Data Persis Seperti Smart Contract
-    const messageHash = sha256(
-      encodePacked(
-        ["uint256", "uint256", "uint256", "address"],
-        [BigInt(plastic), BigInt(metal), BigInt(nonce), espAddress as `0x${string}`],
-      ),
-    );
-
-    // 4. Cari nilai V (27 atau 28)
-    const sig27 = `${normalizedRAndS}1b` as `0x${string}`;
-    const recovered27 = await recoverAddress({ hash: messageHash, signature: sig27 });
-    if (recovered27.toLowerCase() === espAddress.toLowerCase()) return sig27;
-
-    return `${normalizedRAndS}1c` as `0x${string}`;
+  const handleUpdateBalance = (contractAddress: string, balance: number) => {
+    setTokenBalances(prev => {
+      if (prev[contractAddress] === balance) return prev;
+      return { ...prev, [contractAddress]: balance };
+    });
   };
 
-  const { data: balance, refetch: refetchBalance } = useReadContract({
-    address: activeCommunity.address as `0x${string}`,
+  const totalBalance = Object.values(tokenBalances).reduce((acc, val) => acc + val, 0);
+
+  // [PERUBAHAN]: Fungsi ini tidak lagi memanggil blockchain.
+  // Ia hanya menyembunyikan Pop-Up (clearPayload) dan bisa Anda hubungkan ke penyimpanan lokal (Zustand/LocalStorage)
+  const handleSaveReceipt = () => {
+    if (!latestPayload || !activeCommunity) return;
+
+    // Membuat objek struk baru
+    const newReceipt = {
+      id: Date.now(), // ID unik berdasarkan waktu
+      payload: latestPayload,
+      community: activeCommunity,
+      date: new Date().toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }),
+      status: "pending", // Status belum diklaim ke blockchain
+    };
+
+    // Mengambil data struk lama dari memori HP, lalu menambahkan yang baru
+    const existingReceipts = JSON.parse(localStorage.getItem("rvm_receipts") || "[]");
+    localStorage.setItem("rvm_receipts", JSON.stringify([newReceipt, ...existingReceipts]));
+
+    console.log("📝 Struk Berhasil Disimpan ke HP!");
+    alert("Struk berhasil disimpan! Silakan buka halaman Riwayat untuk mengklaim token Anda.");
+    clearPayload(); // Tutup Pop-Up
+  };
+
+  const getStatusStyle = () => {
+    if (status.includes("Terhubung")) return "bg-green-500/20 text-green-400 border-green-500/30";
+    if (status.includes("Mencari")) return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+    return "bg-red-500/20 text-red-400 border-red-500/30";
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-start p-4 min-h-screen bg-base-200 pb-32 pt-8 font-sans">
+      <main className="max-w-md w-full bg-white relative shadow-2xl rounded-[2rem] overflow-hidden border border-gray-200 min-h-[80vh]">
+        {/* --- BAGIAN 1: HEADER GELAP --- */}
+        <section className="bg-slate-900 pt-10 pb-8 px-6 flex flex-col items-center relative z-10 rounded-b-3xl shadow-md">
+          <div className="w-24 h-24 rounded-full border-4 border-slate-700 bg-slate-800 flex items-center justify-center shadow-lg overflow-hidden mb-4">
+            {userAddress ? (
+              <BlockieAvatar address={userAddress} size={96} />
+            ) : (
+              <svg
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="w-12 h-12 text-slate-500"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
+                />
+              </svg>
+            )}
+          </div>
+
+          <div className="text-center w-full">
+            <p className="text-[10px] text-slate-400 font-bold tracking-widest mb-1">TOTAL SALDO (ESTIMASI)</p>
+            <h1 className="text-4xl font-black text-white tracking-tight">
+              ${totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </h1>
+          </div>
+
+          <div className="mt-6 flex flex-col items-center w-full gap-3">
+            <RainbowKitCustomConnectButton />
+            {isLocalNetwork && <FaucetButton />}
+            <span
+              className={`px-4 py-1.5 rounded-full text-[10px] font-bold border tracking-widest flex items-center gap-2 mt-2 ${getStatusStyle()}`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full animate-pulse ${status.includes("Terhubung") ? "bg-green-400" : "bg-gray-400"}`}
+              ></span>
+              {status.toUpperCase()}
+            </span>
+          </div>
+        </section>
+
+        {/* --- BAGIAN 2: KONTEN UTAMA (WALLET) --- */}
+        <section className="px-6 pt-8 pb-8">
+          {/* LOKASI RVM */}
+          <div className="bg-[#F8FAFC] p-4 rounded-2xl mb-8 border border-gray-100">
+            <label className="text-[10px] text-gray-500 font-bold tracking-wider mb-2 block">
+              KONEKSI KOMUNITAS RVM
+            </label>
+            {isLoading || !dynamicCommunities ? (
+              <div className="w-full h-10 bg-gray-200 animate-pulse rounded-xl"></div>
+            ) : (
+              <select
+                className="select select-bordered w-full bg-white text-slate-800 font-bold h-10 min-h-0 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm"
+                value={activeCommunity?.contractAddress || ""}
+                onChange={e => {
+                  const selected = dynamicCommunities.find((c: any) => c.contractAddress === e.target.value);
+                  if (selected) setActiveCommunity(selected);
+                }}
+              >
+                {dynamicCommunities.map((comm: any, idx: number) => (
+                  <option key={idx} value={comm.contractAddress}>
+                    {comm.name} ({comm.symbol})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* DAFTAR ASET TOKEN */}
+          <div className="mb-3 ml-1 flex justify-between items-center">
+            <p className="text-gray-400 text-[11px] font-bold tracking-wider">ASET REWARD SAYA</p>
+          </div>
+          <div className="space-y-2 mb-4 custom-scrollbar">
+            {isLoading || !dynamicCommunities ? (
+              <div className="text-center text-xs text-gray-400 py-6 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                Memuat aset...
+              </div>
+            ) : dynamicCommunities.length === 0 ? (
+              <div className="text-center text-xs text-gray-400 py-6 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                Belum ada token RVM terdaftar.
+              </div>
+            ) : (
+              dynamicCommunities.map((comm: any, idx: number) => (
+                <TokenRow key={idx} community={comm} userAddress={userAddress} onUpdateBalance={handleUpdateBalance} />
+              ))
+            )}
+          </div>
+        </section>
+      </main>
+
+      {/* ================================================================= */}
+      {/* POP-UP MENYIMPAN STRUK (BUKAN KLAIM BLOCKCHAIN LANGSUNG) */}
+      {/* ================================================================= */}
+      {latestPayload && (
+        <div className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 transition-all">
+          <div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-3xl p-6 pb-10 shadow-2xl animate-[slideUp_0.3s_ease-out]">
+            <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6 sm:hidden"></div>
+
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-[#E1F5FE] text-[#0288D1] rounded-full mx-auto flex items-center justify-center mb-3">
+                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                  />
+                </svg>
+              </div>
+              <h2 className="text-xl font-bold text-slate-900">Setoran Diterima!</h2>
+              <p className="text-sm text-slate-500 mt-1">Mesin telah menghitung sampah Anda.</p>
+            </div>
+
+            {/* TAMPILAN ITEM LEBIH MANUSIAWI (Bukan Sensor Raw) */}
+            <div className="flex gap-3 mb-6">
+              <div className="bg-blue-50 px-4 py-3 rounded-xl border border-blue-100 flex-1 text-center">
+                <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1">Plastik</p>
+                <p className="text-blue-700 font-black text-xl">
+                  {latestPayload.plastic} <span className="text-sm font-normal">Botol</span>
+                </p>
+              </div>
+              <div className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 flex-1 text-center">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Metal</p>
+                <p className="text-slate-700 font-black text-xl">
+                  {latestPayload.metal} <span className="text-sm font-normal">Kaleng</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide ml-1 mb-2 block">
+                Pilih Komunitas (Untuk Disimpan)
+              </label>
+              <select
+                className="select select-bordered w-full bg-white text-slate-800 font-bold h-12 focus:outline-none focus:border-[#0288D1]"
+                value={activeCommunity?.contractAddress || ""}
+                onChange={e => {
+                  const selected = dynamicCommunities?.find((c: any) => c.contractAddress === e.target.value);
+                  if (selected) setActiveCommunity(selected);
+                }}
+              >
+                {dynamicCommunities?.map((comm: any, idx: number) => (
+                  <option key={idx} value={comm.contractAddress}>
+                    {comm.name} ({comm.symbol})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={clearPayload}
+                className="btn flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 border-none rounded-xl"
+              >
+                Buang Struk
+              </button>
+              <button
+                onClick={handleSaveReceipt}
+                disabled={!activeCommunity}
+                className="btn flex-1 bg-[#0288D1] hover:bg-[#01579B] text-white border-none rounded-xl shadow-lg shadow-blue-500/30"
+              >
+                Simpan Struk (Gratis)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =========================================================================
+// KOMPONEN ANAK: TokenRow (Membaca saldo masing-masing token)
+// =========================================================================
+function TokenRow({
+  community,
+  userAddress,
+  onUpdateBalance,
+}: {
+  community: any;
+  userAddress: string | undefined;
+  onUpdateBalance: (addr: string, bal: number) => void;
+}) {
+  const { data: marketTokenAddress } = useReadContract({
+    address: community.contractAddress,
+    abi: [
+      { inputs: [], name: "marketToken", outputs: [{ type: "address" }], stateMutability: "view", type: "function" },
+    ],
+    functionName: "marketToken",
+  });
+
+  const balanceTarget =
+    !marketTokenAddress || marketTokenAddress === "0x0000000000000000000000000000000000000000"
+      ? community.contractAddress
+      : marketTokenAddress;
+
+  const { data: balance } = useReadContract({
+    address: balanceTarget as `0x${string}`,
     abi: [
       {
         inputs: [{ name: "account", type: "address" }],
@@ -103,179 +283,37 @@ export default function Home() {
       },
     ],
     functionName: "balanceOf",
-
     args: [userAddress as `0x${string}`],
-
-    query: {
-      enabled: !!userAddress,
-    },
+    query: { enabled: !!userAddress },
   });
 
-  // 4. FUNGSI UNTUK MENGEKSEKUSI SMART CONTRACT
-  const handleClaimReward = async () => {
-    if (!latestPayload) return;
+  const formattedBalance = balance ? Number(balance) / 1e18 : 0;
 
-    try {
-      // 1. Suruh Next.js mencari nilai 'v' yang hilang
-      const esp32Address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
-      const fullSignature = await findVAndConstructSignature(
-        latestPayload.signature,
-        latestPayload.plastic,
-        latestPayload.metal,
-        latestPayload.nonce,
-        esp32Address,
-      );
+  useEffect(() => {
+    onUpdateBalance(community.contractAddress, formattedBalance);
+  }, [formattedBalance, community.contractAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
-      // 2. Tembakkan ke Blockchain!
-      await writeContractAsync({
-        address: activeCommunity.address as `0x${string}`,
-        abi: COMMUNITY_ABI,
-        functionName: "batchClaim",
-        args: [
-          BigInt(latestPayload.plastic),
-          BigInt(latestPayload.metal),
-          BigInt(latestPayload.nonce),
-          esp32Address,
-          fullSignature, // <-- Gunakan Full Signature yang sudah dirakit
-        ],
-      });
-
-      refetchBalance();
-      console.log("🎉 Klaim Berhasil!");
-      clearPayload();
-    } catch (error) {
-      console.error("❌ Gagal Klaim:", error);
-    }
-  };
-
-  const getStatusStyle = () => {
-    if (status.includes("Terhubung")) return "bg-[#E8F5E9] text-[#2E7D32] border-[#A5D6A7]";
-    if (status.includes("Mencari")) return "bg-[#FFF3E0] text-[#EF6C00] border-[#FFCC80]";
-    return "bg-[#FFEBEE] text-[#C62828] border-[#EF9A9A]";
-  };
+  const initial = community.symbol ? community.symbol.charAt(0).toUpperCase() : "T";
 
   return (
-    <div className="flex flex-col items-center justify-start p-4 min-h-screen bg-base-200 pb-32 pt-8">
-      <main className="max-w-md w-full bg-white relative shadow-xl rounded-3xl overflow-hidden border border-gray-100">
-        <section className="flex flex-col items-center mt-8">
-          <div className="w-28 h-28 rounded-full border-[3px] border-[#0288D1] bg-[#E1F5FE] flex items-center justify-center shadow-sm">
-            <svg
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="w-14 h-14 text-[#0288D1]"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
-              />
-            </svg>
-          </div>
-
-          <div className="mt-5 flex flex-col items-center px-4 gap-3 w-full">
-            <div className="flex justify-center w-full z-10">
-              <RainbowKitCustomConnectButton />
-            </div>
-            {isLocalNetwork && (
-              <div className="flex justify-center w-full">
-                <FaucetButton />
-              </div>
-            )}
-            <div className="mt-1">
-              <span
-                className={`px-4 py-1.5 rounded-full text-[11px] font-bold inline-block border tracking-wide shadow-sm ${getStatusStyle()}`}
-              >
-                ● {status.toUpperCase()}
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section className="px-6 mt-6 mb-8">
-          <div className="bg-[#F3F4F6] p-4 rounded-2xl mb-6 border border-gray-200 shadow-inner">
-            <label className="text-[10px] text-gray-500 font-bold tracking-wider mb-1 block">LOKASI RVM SAAT INI</label>
-            <select
-              className="select select-bordered select-sm w-full bg-white text-[#01579B] font-bold mb-4"
-              value={activeCommunity.id}
-              onChange={e => {
-                const selected = AVAILABLE_COMMUNITIES.find(c => c.id === Number(e.target.value));
-                if (selected) setActiveCommunity(selected);
-              }}
-            >
-              {AVAILABLE_COMMUNITIES.map(comm => (
-                <option key={comm.id} value={comm.id}>
-                  {comm.name}
-                </option>
-              ))}
-            </select>
-            <div className="flex justify-between items-end bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
-              <div>
-                <p className="text-[10px] text-gray-400 font-bold tracking-wider">SALDO TOKEN</p>
-                <p className="text-xl font-black text-[#0288D1]">
-                  {Number(balance || 0n)}{" "}
-                  <span className="text-sm font-bold text-gray-500">{activeCommunity.tokenSymbol}</span>
-                </p>
-              </div>
-              <div className="bg-[#E1F5FE] text-[#0288D1] p-1.5 rounded-lg">
-                <svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3"
-                  />
-                </svg>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[#E1F5FE] p-5 rounded-2xl mb-6 shadow-sm border border-[#B3E5FC]">
-            <p className="text-[#0288D1] font-bold text-xs mb-1 tracking-wider">DATA SENSOR TERKINI</p>
-            <p className="text-[#01579B] font-mono text-lg font-bold">{sensorData}</p>
-          </div>
-
-          {/* 5. TOMBOL KLAIM AKAN MUNCUL DI SINI JIKA latestPayload ADA ISINYA */}
-          {latestPayload && (
-            <div className="mb-6 animate-pulse">
-              <button
-                onClick={handleClaimReward}
-                disabled={isPending}
-                className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-500/30 transition-all active:scale-95"
-              >
-                {isPending ? "Sedang Memproses..." : "KLAIM REWARD"}
-              </button>
-            </div>
-          )}
-
-          <div className="mb-2 ml-1 flex justify-between items-center">
-            <p className="text-gray-400 text-xs font-bold tracking-wide">RIWAYAT SETORAN</p>
-          </div>
-
-          {transactions.length === 0 ? (
-            <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 text-center text-sm text-gray-400 italic">
-              Belum ada sampah yang masuk...
-            </div>
-          ) : (
-            <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-              {transactions.map((tx, idx) => (
-                <div
-                  key={idx}
-                  className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center transition-all hover:shadow-md"
-                >
-                  <div className="overflow-hidden w-[70%]">
-                    <p className="text-xs text-gray-400">Payload</p>
-                    <p className="text-[#01579B] font-mono font-bold text-xs truncate">{tx}</p>
-                  </div>
-                  <div className="bg-[#E1F5FE] text-[#0288D1] px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap">
-                    + Poin {activeCommunity.tokenSymbol}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </main>
+    <div className="flex items-center justify-between bg-white p-3 rounded-2xl border border-gray-100 shadow-sm transition-all hover:bg-slate-50">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-[#0F172A] flex items-center justify-center text-white font-bold text-sm shadow-sm">
+          {initial}
+        </div>
+        <div>
+          <h3 className="font-bold text-slate-800 text-sm">{community.symbol}</h3>
+          <p className="text-[10px] text-slate-500">{community.name}</p>
+        </div>
+      </div>
+      <div className="text-right">
+        <p className="font-black text-slate-800 text-sm">
+          {formattedBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+        </p>
+        <p className="text-[10px] text-slate-400 font-bold">
+          ${formattedBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </p>
+      </div>
     </div>
   );
 }

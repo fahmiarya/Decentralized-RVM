@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HomeIcon, UserIcon } from "@heroicons/react/24/outline";
+import { ClockIcon, HomeIcon } from "@heroicons/react/24/outline";
 import { useBleStore } from "~~/services/store/useBLEstore";
 
 export const Footer = () => {
@@ -49,11 +49,13 @@ export const Footer = () => {
         </button>
 
         <Link
-          href="/profile"
-          className={`flex flex-col items-center transition-colors ${pathname === "/profile" ? "text-[#0288D1]" : "text-gray-400 hover:text-gray-600"}`}
+          href="/riwayat"
+          className={`flex flex-col items-center transition-colors ${
+            pathname === "/riwayat" ? "text-[#0288D1]" : "text-gray-400 hover:text-gray-600"
+          }`}
         >
-          <UserIcon className="w-6 h-6" />
-          <span className="text-[10px] mt-1 font-semibold">Profile</span>
+          <ClockIcon className="w-6 h-6" />
+          <span className="text-[10px] mt-1 font-semibold">Riwayat</span>
         </Link>
       </div>
 

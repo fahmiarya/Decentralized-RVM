@@ -1,5 +1,5 @@
 # =========================================
-# 1. STANDAR NODE & YARN (Bawaan Anda)
+# 1. STANDAR NODE & YARN 
 # =========================================
 node_modules
 .yarn/*

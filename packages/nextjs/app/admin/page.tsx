@@ -1,35 +1,38 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useReadContract, useWriteContract } from "wagmi";
 import { useScaffoldReadContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
 
 export default function AdminDashboard() {
-  const { address: adminAddress } = useAccount();
-
-  // 1. PERBAIKAN: Ubah initial state menjadi "0" atau biarkan string kosong tapi pastikan penanganan angkanya aman
+  // State untuk Create Community
   const [communityName, setCommunityName] = useState("");
   const [plasticRate, setPlasticRate] = useState("");
   const [metalRate, setMetalRate] = useState("");
-
   const [tokenModel, setTokenModel] = useState<"custom" | "market">("custom");
   const [tokenSymbol, setTokenSymbol] = useState("");
   const [marketTokenAddress, setMarketTokenAddress] = useState("");
   const [isOpenCommunity, setIsOpenCommunity] = useState(true);
 
-  const { writeContractAsync: createCommunity, isPending } = useScaffoldWriteContract({
+  // State untuk Whitelist Device
+  const [targetCommunity, setTargetCommunity] = useState("");
+  const [deviceAddress, setDeviceAddress] = useState("");
+
+  // Hooks
+  const { writeContractAsync: createCommunity, isPending: isCreating } = useScaffoldWriteContract({
     contractName: "RVMFactory",
   });
 
   const { data: deployedCommunities, isLoading: isReading } = useScaffoldReadContract({
     contractName: "RVMFactory",
-    functionName: "getDeployedCommunities",
+    functionName: "getAllCommunityDetails",
   });
 
-  const handleCreateCommunity = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const { writeContractAsync: whitelistDevice, isPending: isWhitelisting } = useWriteContract();
 
-    // Validasi ekstra agar aman
+  // Handlers
+  const handleCreateCommunity = async (e: React.SyntheticEvent) => {
+    e.preventDefault();
     if (!communityName || (!tokenSymbol && tokenModel === "custom")) return;
 
     try {
@@ -38,7 +41,6 @@ export default function AdminDashboard() {
         args: [
           communityName,
           tokenModel === "custom" ? tokenSymbol : "USDT",
-          // 2. PERBAIKAN: Pastikan selalu mengirim angka valid ke BigInt
           BigInt(plasticRate === "" ? "0" : plasticRate),
           BigInt(metalRate === "" ? "0" : metalRate),
           isOpenCommunity,
@@ -47,213 +49,305 @@ export default function AdminDashboard() {
             : "0x0000000000000000000000000000000000000000",
         ],
       });
-
-      // Reset Form
       setCommunityName("");
       setTokenSymbol("");
       setMarketTokenAddress("");
       setPlasticRate("");
       setMetalRate("");
     } catch (error) {
-      console.error("Gagal membuat komunitas:", error);
+      console.error("Gagal membuat komunitas RVM:", error);
+    }
+  };
+
+  const handleWhitelistDevice = async (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    if (!targetCommunity || !deviceAddress) return;
+
+    try {
+      await whitelistDevice({
+        address: targetCommunity as `0x${string}`,
+        abi: [
+          {
+            inputs: [
+              { internalType: "address", name: "deviceAddress", type: "address" },
+              { internalType: "bool", name: "status", type: "bool" },
+            ],
+            name: "setWhitelistedDevice",
+            outputs: [],
+            stateMutability: "nonpayable",
+            type: "function",
+          },
+        ],
+        functionName: "setWhitelistedDevice",
+        args: [deviceAddress as `0x${string}`, true],
+      });
+      setDeviceAddress("");
+      alert("Perangkat berhasil didaftarkan ke Komunitas!");
+    } catch (error) {
+      console.error("Gagal otorisasi perangkat:", error);
     }
   };
 
   return (
-    <div className="flex flex-col items-center justify-start p-6 min-h-screen bg-base-200 pb-20">
-      <div className="max-w-2xl w-full mt-4">
-        {/* --- BAGIAN 1: PEMANTAUAN BRANKAS --- */}
-        <section className="bg-gradient-to-br from-[#01579B] to-[#0288D1] p-6 rounded-3xl shadow-lg mb-8 text-white relative overflow-hidden">
-          <svg className="absolute -right-4 -bottom-4 opacity-10 w-48 h-48" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.31-8.86c-1.77-.45-2.34-.94-2.34-1.67 0-.84.79-1.43 2.1-1.43 1.38 0 1.9.66 1.94 1.64h1.71c-.05-1.34-.87-2.57-2.49-2.97V5H10.9v1.69c-1.51.32-2.72 1.3-2.72 2.81 0 1.79 1.49 2.69 3.66 3.21 1.95.46 2.34 1.15 2.34 1.87 0 .53-.39 1.39-2.1 1.39-1.6 0-2.23-.72-2.32-1.64H8.04c.1 1.7 1.36 2.66 2.86 2.97V19h2.34v-1.67c1.52-.29 2.72-1.16 2.73-2.77-.01-2.2-1.9-2.96-3.66-3.42z" />
-          </svg>
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20 pt-8">
+      <div className="max-w-3xl mx-auto px-4">
+        {/* --- ADD RVM COMMUNITY BOX --- */}
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 md:p-8 mb-8 shadow-sm">
+          <h3 className="text-xl font-bold text-blue-900 mb-6">Add RVM Community</h3>
 
-          <h2 className="text-lg font-bold mb-4 flex items-center gap-2">Brankas Komunitas Anda (Pool)</h2>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white/10 p-4 rounded-2xl border border-white/20 backdrop-blur-sm">
-              <p className="text-xs text-blue-100 font-semibold tracking-wider mb-1">TOTAL SALDO</p>
-              <p className="text-3xl font-black">
-                1,250.00 <span className="text-sm font-normal">USDT</span>
-              </p>
-            </div>
-            <div className="bg-white/10 p-4 rounded-2xl border border-white/20 backdrop-blur-sm">
-              <p className="text-xs text-blue-100 font-semibold tracking-wider mb-1">SAMPAH MASUK</p>
-              <p className="text-3xl font-black">
-                842 <span className="text-sm font-normal">Item</span>
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* --- BAGIAN 2: FORM INISIALISASI --- */}
-        <section className="bg-white p-6 md:p-8 rounded-3xl shadow-xl border border-gray-100">
-          <h2 className="text-xl font-bold text-[#0288D1] mb-6 flex items-center gap-2">
-            <span>➕</span> Inisialisasi RVM Baru
-          </h2>
-
-          <form onSubmit={handleCreateCommunity} className="space-y-6">
-            <div>
-              <label className="text-sm font-bold text-gray-500">Nama Komunitas</label>
-              <input
-                type="text"
-                className="input input-bordered w-full mt-1 bg-gray-50 focus:bg-white text-gray-800"
-                placeholder="Contoh: RVM Alun-alun Kota"
-                value={communityName}
-                onChange={e => setCommunityName(e.target.value)}
-                required
-              />
-            </div>
-
-            {/* 3. PERBAIKAN: Hapus kelas animasi yang mungkin menyebabkan error re-render (animate-fadeIn) */}
-            <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200 space-y-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-bold text-gray-700">Komunitas Terbuka</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Siapa saja bisa mendapat token.</p>
-                </div>
+          <form onSubmit={handleCreateCommunity} className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Community Name</label>
                 <input
-                  type="checkbox"
-                  className="toggle toggle-info"
-                  checked={isOpenCommunity}
-                  onChange={e => setIsOpenCommunity(e.target.checked)}
+                  type="text"
+                  className="input input-bordered w-full mt-1.5 bg-slate-50 border-slate-200 rounded-xl h-11 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g., Sukamaju"
+                  value={communityName}
+                  onChange={e => setCommunityName(e.target.value)}
+                  required
                 />
               </div>
-
-              <div className="divider my-0"></div>
-
               <div>
-                <p className="text-sm font-bold text-gray-700 mb-3">Model Ekonomi Token</p>
-                <div className="flex bg-gray-200 p-1 rounded-xl w-full">
-                  <button
-                    type="button"
-                    className={`flex-1 text-sm font-bold py-2 rounded-lg transition-colors ${tokenModel === "custom" ? "bg-white text-[#0288D1] shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                    onClick={() => setTokenModel("custom")}
-                  >
-                    Token Komunitas
-                  </button>
-                  <button
-                    type="button"
-                    className={`flex-1 text-sm font-bold py-2 rounded-lg transition-colors ${tokenModel === "market" ? "bg-white text-[#0288D1] shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                    onClick={() => setTokenModel("market")}
-                  >
-                    Token Pasar (USDT)
-                  </button>
-                </div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Token Model</label>
+                <select
+                  className="select select-bordered w-full mt-1.5 bg-slate-50 border-slate-200 rounded-xl h-11 min-h-0 text-sm focus:border-blue-500 focus:outline-none"
+                  value={tokenModel}
+                  onChange={e => setTokenModel(e.target.value as any)}
+                >
+                  <option value="custom">Custom Token</option>
+                  <option value="market">Market Token (USDT)</option>
+                </select>
               </div>
+            </div>
 
-              {/* CONDITIONAL RENDER YANG LEBIH AMAN */}
-              {tokenModel === "custom" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {tokenModel === "custom" ? (
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Simbol Token</label>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Token Symbol</label>
                   <input
                     type="text"
-                    className="input input-sm input-bordered w-full mt-1 bg-white text-gray-800"
-                    placeholder="Contoh: RVM-SMJ"
+                    className="input input-bordered w-full mt-1.5 bg-slate-50 border-slate-200 rounded-xl h-11 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="e.g., SMJ"
                     value={tokenSymbol}
                     onChange={e => setTokenSymbol(e.target.value)}
-                    required={tokenModel === "custom"}
+                    required
                   />
                 </div>
-              )}
-
-              {tokenModel === "market" && (
+              ) : (
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    Alamat Contract USDT
-                  </label>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">USDT Address</label>
                   <input
                     type="text"
-                    className="input input-sm input-bordered w-full mt-1 bg-white font-mono text-xs text-gray-800"
+                    className="input input-bordered w-full mt-1.5 bg-slate-50 border-slate-200 rounded-xl h-11 text-sm font-mono focus:border-blue-500 focus:outline-none"
                     placeholder="0x..."
                     value={marketTokenAddress}
                     onChange={e => setMarketTokenAddress(e.target.value)}
-                    required={tokenModel === "market"}
+                    required
                   />
-                  <p className="text-[10px] text-red-400 mt-1 font-semibold">
-                    *Pastikan Anda mengisi saldo ke brankas kontrak ini.
-                  </p>
                 </div>
               )}
+              <div className="flex gap-4">
+                <div className="w-1/2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Plastic Rate</label>
+                  <input
+                    type="number"
+                    className="input input-bordered w-full mt-1.5 bg-slate-50 border-slate-200 rounded-xl h-11 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Pts"
+                    value={plasticRate}
+                    onChange={e => setPlasticRate(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="w-1/2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Metal Rate</label>
+                  <input
+                    type="number"
+                    className="input input-bordered w-full mt-1.5 bg-slate-50 border-slate-200 rounded-xl h-11 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Pts"
+                    value={metalRate}
+                    onChange={e => setMetalRate(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-bold text-gray-500">Reward Plastik</label>
-                <input
-                  type="number"
-                  min="0"
-                  className="input input-bordered w-full mt-1 bg-gray-50 focus:bg-white text-gray-800"
-                  placeholder="Poin/Botol"
-                  value={plasticRate}
-                  onChange={e => setPlasticRate(e.target.value)}
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-sm font-bold text-gray-500">Reward Metal</label>
-                <input
-                  type="number"
-                  min="0"
-                  className="input input-bordered w-full mt-1 bg-gray-50 focus:bg-white text-gray-800"
-                  placeholder="Poin/Kaleng"
-                  value={metalRate}
-                  onChange={e => setMetalRate(e.target.value)}
-                  required
-                />
-              </div>
+            <div className="flex justify-end pt-4">
+              <button
+                type="submit"
+                className="btn bg-blue-600 hover:bg-blue-700 text-white px-8 rounded-xl border-none h-11 min-h-0 shadow-sm"
+                disabled={isCreating}
+              >
+                {isCreating ? <span className="loading loading-spinner loading-sm"></span> : "Save Community"}
+              </button>
             </div>
+          </form>
+        </div>
+
+        {/* --- REGISTER DEVICE BOX --- */}
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 md:p-8 mb-8 shadow-sm">
+          <h3 className="text-xl font-bold text-blue-900 mb-6">Register Device to Community</h3>
+          <form onSubmit={handleWhitelistDevice} className="flex flex-col md:flex-row gap-4">
+            <select
+              className="select select-bordered w-full md:w-1/3 bg-slate-50 border-slate-200 rounded-xl h-12 text-sm font-semibold text-slate-700 focus:border-blue-500 focus:outline-none"
+              value={targetCommunity}
+              onChange={e => setTargetCommunity(e.target.value)}
+              required
+            >
+              <option value="" disabled>
+                Select Community
+              </option>
+              {deployedCommunities?.map((community: any, index: number) => (
+                <option key={index} value={community.contractAddress}>
+                  {community.name}
+                </option>
+              ))}
+            </select>
+
+            <input
+              type="text"
+              className="input input-bordered w-full md:w-full bg-slate-50 border-slate-200 rounded-xl h-12 text-sm font-mono text-slate-700 focus:border-blue-500 focus:outline-none"
+              placeholder="Insert Device Address (0x...)"
+              value={deviceAddress}
+              onChange={e => setDeviceAddress(e.target.value)}
+              required
+            />
 
             <button
               type="submit"
-              className="btn w-full mt-2 bg-[#0288D1] hover:bg-[#0277BD] text-white border-none text-base h-12 shadow-md"
-              disabled={isPending}
+              className="btn bg-blue-600 hover:bg-blue-700 text-white px-8 rounded-xl border-none h-12 shadow-sm"
+              disabled={isWhitelisting}
             >
-              {isPending ? <span className="loading loading-spinner loading-md"></span> : "Cetak Mesin ke Blockchain"}
+              {isWhitelisting ? <span className="loading loading-spinner loading-sm"></span> : "Send"}
             </button>
           </form>
+        </div>
 
-          <div className="divider my-8 text-gray-400 text-xs font-bold tracking-widest">DAFTAR INSTANSI RVM AKTIF</div>
+        {/* --- DEVICE LIST BOX --- */}
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-sm">
+          <h3 className="text-xl font-bold text-blue-900 mb-6">Device Dashboard</h3>
 
-          {/* --- BAGIAN 3: DAFTAR KOMUNITAS --- */}
           {isReading ? (
             <div className="flex justify-center py-6">
-              <span className="loading loading-dots loading-lg text-[#0288D1]"></span>
+              <span className="loading loading-dots loading-md text-blue-600"></span>
             </div>
           ) : deployedCommunities && deployedCommunities.length > 0 ? (
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {deployedCommunities.map((address, index) => (
-                <div
-                  key={index}
-                  className="bg-[#E1F5FE] p-4 rounded-xl border border-[#B3E5FC] flex flex-col md:flex-row md:items-center justify-between gap-3 hover:shadow-md transition-shadow"
-                >
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-bold text-[#0288D1] uppercase tracking-wider">
-                        Instansi #{index + 1}
-                      </span>
-                      <span className="badge badge-sm badge-success text-white border-none text-[10px] font-bold">
-                        LIVE
-                      </span>
-                    </div>
-                    <p className="font-mono text-xs text-[#01579B] break-all">{address}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost text-[#0288D1] bg-white hover:bg-gray-50 border border-[#81D4FA]"
-                    onClick={() => navigator.clipboard.writeText(address)}
-                  >
-                    Copy ID
-                  </button>
-                </div>
+            <div className="space-y-4">
+              {deployedCommunities.map((community: any, index: number) => (
+                <CommunityCard key={index} community={community} />
               ))}
             </div>
           ) : (
-            <div className="text-center py-8 bg-gray-50 rounded-xl border border-gray-100">
-              <p className="text-gray-400 italic text-sm">Belum ada mesin RVM yang terdaftar.</p>
+            <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+              <p className="text-slate-500 text-sm font-medium">No communities registered yet.</p>
             </div>
           )}
-        </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================================
+// KOMPONEN ANAK: Merender setiap kartu komunitas dan mengambil datanya
+// =========================================================================
+function CommunityCard({ community }: { community: any }) {
+  // 1. ABI Spesifik untuk membaca data dari CommunityRVM
+  const communityAbi = [
+    { inputs: [], name: "lifetimePlastic", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
+    { inputs: [], name: "lifetimeMetal", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
+    { inputs: [], name: "marketToken", outputs: [{ type: "address" }], stateMutability: "view", type: "function" },
+  ] as const;
+
+  // 2. Baca Jumlah Plastik Seumur Hidup
+  const { data: plasticCount } = useReadContract({
+    address: community.contractAddress,
+    abi: communityAbi,
+    functionName: "lifetimePlastic",
+  });
+
+  // 3. Baca Jumlah Metal Seumur Hidup
+  const { data: metalCount } = useReadContract({
+    address: community.contractAddress,
+    abi: communityAbi,
+    functionName: "lifetimeMetal",
+  });
+
+  // 4. Cek Tipe Token yang Dipakai (0x000... = Custom, Selain itu = Market)
+  const { data: marketTokenAddr } = useReadContract({
+    address: community.contractAddress,
+    abi: communityAbi,
+    functionName: "marketToken",
+  });
+
+  // Tentukan apakah dia Custom Token (Unlimited Mint)
+  const isCustomToken = !marketTokenAddr || marketTokenAddr === "0x0000000000000000000000000000000000000000";
+
+  // 5. Jika Market Token, Baca Sisa Saldo (BalanceOf) di Brankas Komunitas Ini
+  const { data: poolBalance } = useReadContract({
+    address: isCustomToken ? undefined : (marketTokenAddr as `0x${string}`),
+    abi: [
+      {
+        inputs: [{ type: "address" }],
+        name: "balanceOf",
+        outputs: [{ type: "uint256" }],
+        stateMutability: "view",
+        type: "function",
+      },
+    ] as const,
+    functionName: "balanceOf",
+    args: [community.contractAddress],
+  });
+
+  // Kalkulasi & Formatting
+  const totalSampah = (Number(plasticCount || 0) + Number(metalCount || 0)).toLocaleString();
+
+  let liquidityDisplay = "...";
+  let liquidityLabel = community.symbol;
+
+  if (isCustomToken) {
+    liquidityDisplay = "Unlimited";
+    liquidityLabel = "Minted"; // Karena tidak bisa habis
+  } else if (poolBalance !== undefined) {
+    // Dibagi 1e18 karena standar desimal ERC20
+    const formattedBalance = (Number(poolBalance) / 1e18).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    liquidityDisplay = formattedBalance;
+    liquidityLabel = "USDT"; // Asumsi Market Token = USDT
+  }
+
+  return (
+    <div className="bg-white p-5 rounded-2xl border border-slate-200 flex flex-col gap-4 transition-all hover:shadow-md hover:border-blue-200">
+      {/* Bagian Atas: Info Dasar */}
+      <div className="flex justify-between items-start">
+        <div>
+          <h4 className="font-bold text-lg text-slate-800">RVM - {community.name}</h4>
+          <p className="text-xs font-mono text-slate-500 mt-1 bg-slate-50 inline-block px-2 py-1 rounded border border-slate-100">
+            {community.contractAddress}
+          </p>
+        </div>
+        <button
+          onClick={() => navigator.clipboard.writeText(community.contractAddress)}
+          className="btn btn-xs bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg h-8 px-4"
+        >
+          Copy ID
+        </button>
+      </div>
+
+      {/* Bagian Bawah: Statistik Dinamis */}
+      <div className="grid grid-cols-2 gap-3 mt-2">
+        <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100">
+          <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1">Liquidity Pool</p>
+          <p className="text-xl font-black text-slate-800">
+            {liquidityDisplay} <span className="text-xs font-bold text-slate-500">{liquidityLabel}</span>
+          </p>
+        </div>
+        <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100">
+          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Sampah Masuk</p>
+          <p className="text-xl font-black text-slate-800">
+            {totalSampah} <span className="text-xs font-bold text-slate-500">Item</span>
+          </p>
+        </div>
       </div>
     </div>
   );
