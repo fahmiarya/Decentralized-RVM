@@ -2,11 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { hardhat } from "viem/chains";
-import { useAccount, useReadContract } from "wagmi";
+import { useAccount, useReadContract, useReadContracts } from "wagmi";
 import { BlockieAvatar, FaucetButton, RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useTargetNetwork } from "~~/hooks/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { useBleStore } from "~~/services/store/useBLEstore";
+
+// ABI untuk membaca status Open/Closed dari masing-masing komunitas
+const communityAbi = [
+  { inputs: [], name: "isOpenCommunity", outputs: [{ type: "bool" }], stateMutability: "view", type: "function" },
+] as const;
 
 export default function Home() {
   const { targetNetwork } = useTargetNetwork();
@@ -16,21 +21,36 @@ export default function Home() {
   const [activeCommunity, setActiveCommunity] = useState<any>(null);
   const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({});
 
-  // Mengambil state BLE.
-  // [PERUBAHAN]: Kita panggil 'addTransaction' untuk menyimpan struk (jika Anda punya di store Anda).
-  // Jika tidak punya, kita buat logika sederhana untuk menyimpannya di sini.
   const { status, latestPayload, clearPayload } = useBleStore();
 
+  // 1. Fetch Daftar Komunitas dari Factory
   const { data: dynamicCommunities, isLoading } = useScaffoldReadContract({
     contractName: "RVMFactory",
     functionName: "getAllCommunityDetails",
   });
 
+  // 2. Fetch Status Open/Closed untuk SEMUA Komunitas sekaligus (Batch Read)
+  const { data: openStatuses } = useReadContracts({
+    contracts: (dynamicCommunities || []).map((c: any) => ({
+      address: c.contractAddress as `0x${string}`,
+      abi: communityAbi,
+      functionName: "isOpenCommunity",
+    })),
+  });
+
+  // 3. Filter Komunitas Publik (Hanya untuk Dropdown)
+  const publicCommunities =
+    dynamicCommunities?.filter((comm: any, idx: number) => {
+      // Jika masih loading (undefined), anggap true sementara. Hide hanya jika eksplisit false (Closed)
+      return openStatuses?.[idx]?.result !== false;
+    }) || [];
+
+  // Set Default Dropdown ke Komunitas Publik Pertama
   useEffect(() => {
-    if (dynamicCommunities && dynamicCommunities.length > 0 && !activeCommunity) {
-      setActiveCommunity(dynamicCommunities[0]);
+    if (publicCommunities.length > 0 && !activeCommunity) {
+      setActiveCommunity(publicCommunities[0]);
     }
-  }, [dynamicCommunities, activeCommunity]);
+  }, [publicCommunities, activeCommunity]);
 
   const handleUpdateBalance = (contractAddress: string, balance: number) => {
     setTokenBalances(prev => {
@@ -41,27 +61,23 @@ export default function Home() {
 
   const totalBalance = Object.values(tokenBalances).reduce((acc, val) => acc + val, 0);
 
-  // [PERUBAHAN]: Fungsi ini tidak lagi memanggil blockchain.
-  // Ia hanya menyembunyikan Pop-Up (clearPayload) dan bisa Anda hubungkan ke penyimpanan lokal (Zustand/LocalStorage)
   const handleSaveReceipt = () => {
     if (!latestPayload || !activeCommunity) return;
 
-    // Membuat objek struk baru
     const newReceipt = {
-      id: Date.now(), // ID unik berdasarkan waktu
+      id: Date.now(),
       payload: latestPayload,
       community: activeCommunity,
       date: new Date().toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }),
-      status: "pending", // Status belum diklaim ke blockchain
+      status: "pending",
     };
 
-    // Mengambil data struk lama dari memori HP, lalu menambahkan yang baru
     const existingReceipts = JSON.parse(localStorage.getItem("rvm_receipts") || "[]");
     localStorage.setItem("rvm_receipts", JSON.stringify([newReceipt, ...existingReceipts]));
 
     console.log("📝 Struk Berhasil Disimpan ke HP!");
     alert("Struk berhasil disimpan! Silakan buka halaman Riwayat untuk mengklaim token Anda.");
-    clearPayload(); // Tutup Pop-Up
+    clearPayload();
   };
 
   const getStatusStyle = () => {
@@ -118,10 +134,10 @@ export default function Home() {
 
         {/* --- BAGIAN 2: KONTEN UTAMA (WALLET) --- */}
         <section className="px-6 pt-8 pb-8">
-          {/* LOKASI RVM */}
+          {/* LOKASI RVM (HANYA MENAMPILKAN PUBLIC COMMUNITY) */}
           <div className="bg-[#F8FAFC] p-4 rounded-2xl mb-8 border border-gray-100">
             <label className="text-[10px] text-gray-500 font-bold tracking-wider mb-2 block">
-              KONEKSI KOMUNITAS RVM
+              KONEKSI KOMUNITAS RVM (PUBLIK)
             </label>
             {isLoading || !dynamicCommunities ? (
               <div className="w-full h-10 bg-gray-200 animate-pulse rounded-xl"></div>
@@ -130,11 +146,11 @@ export default function Home() {
                 className="select select-bordered w-full bg-white text-slate-800 font-bold h-10 min-h-0 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm"
                 value={activeCommunity?.contractAddress || ""}
                 onChange={e => {
-                  const selected = dynamicCommunities.find((c: any) => c.contractAddress === e.target.value);
+                  const selected = publicCommunities.find((c: any) => c.contractAddress === e.target.value);
                   if (selected) setActiveCommunity(selected);
                 }}
               >
-                {dynamicCommunities.map((comm: any, idx: number) => (
+                {publicCommunities.map((comm: any, idx: number) => (
                   <option key={idx} value={comm.contractAddress}>
                     {comm.name} ({comm.symbol})
                   </option>
@@ -157,23 +173,43 @@ export default function Home() {
                 Belum ada token RVM terdaftar.
               </div>
             ) : (
-              dynamicCommunities.map((comm: any, idx: number) => (
-                <TokenRow key={idx} community={comm} userAddress={userAddress} onUpdateBalance={handleUpdateBalance} />
-              ))
+              // Kita melempar SELURUH komunitas ke TokenRow, logika hiding ada di dalam TokenRow
+              dynamicCommunities.map((comm: any, idx: number) => {
+                const isOpen = openStatuses?.[idx]?.result !== false;
+                return (
+                  <TokenRow
+                    key={idx}
+                    community={comm}
+                    isOpen={isOpen}
+                    userAddress={userAddress}
+                    onUpdateBalance={handleUpdateBalance}
+                  />
+                );
+              })
             )}
           </div>
         </section>
       </main>
 
       {/* ================================================================= */}
-      {/* POP-UP MENYIMPAN STRUK (BUKAN KLAIM BLOCKCHAIN LANGSUNG) */}
+      {/* POP-UP MENYIMPAN STRUK */}
       {/* ================================================================= */}
       {latestPayload && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 transition-all">
-          <div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-3xl p-6 pb-10 shadow-2xl animate-[slideUp_0.3s_ease-out]">
+          <div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-3xl p-6 pb-10 shadow-2xl animate-[slideUp_0.3s_ease-out] relative">
+            {/* TOMBOL CLOSE (X) */}
+            <button
+              onClick={clearPayload}
+              className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
             <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6 sm:hidden"></div>
 
-            <div className="text-center mb-6">
+            <div className="text-center mb-6 mt-2">
               <div className="w-16 h-16 bg-[#E1F5FE] text-[#0288D1] rounded-full mx-auto flex items-center justify-center mb-3">
                 <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
@@ -188,7 +224,6 @@ export default function Home() {
               <p className="text-sm text-slate-500 mt-1">Mesin telah menghitung sampah Anda.</p>
             </div>
 
-            {/* TAMPILAN ITEM LEBIH MANUSIAWI (Bukan Sensor Raw) */}
             <div className="flex gap-3 mb-6">
               <div className="bg-blue-50 px-4 py-3 rounded-xl border border-blue-100 flex-1 text-center">
                 <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1">Plastik</p>
@@ -206,17 +241,18 @@ export default function Home() {
 
             <div className="mb-6">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide ml-1 mb-2 block">
-                Pilih Komunitas (Untuk Disimpan)
+                Pilih Komunitas (Publik)
               </label>
               <select
                 className="select select-bordered w-full bg-white text-slate-800 font-bold h-12 focus:outline-none focus:border-[#0288D1]"
                 value={activeCommunity?.contractAddress || ""}
                 onChange={e => {
-                  const selected = dynamicCommunities?.find((c: any) => c.contractAddress === e.target.value);
+                  const selected = publicCommunities?.find((c: any) => c.contractAddress === e.target.value);
                   if (selected) setActiveCommunity(selected);
                 }}
               >
-                {dynamicCommunities?.map((comm: any, idx: number) => (
+                {/* HANYA MUNCULKAN KOMUNITAS PUBLIC DI POP-UP */}
+                {publicCommunities?.map((comm: any, idx: number) => (
                   <option key={idx} value={comm.contractAddress}>
                     {comm.name} ({comm.symbol})
                   </option>
@@ -226,15 +262,9 @@ export default function Home() {
 
             <div className="flex gap-3">
               <button
-                onClick={clearPayload}
-                className="btn flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 border-none rounded-xl"
-              >
-                Buang Struk
-              </button>
-              <button
                 onClick={handleSaveReceipt}
                 disabled={!activeCommunity}
-                className="btn flex-1 bg-[#0288D1] hover:bg-[#01579B] text-white border-none rounded-xl shadow-lg shadow-blue-500/30"
+                className="btn w-full bg-[#0288D1] hover:bg-[#01579B] text-white border-none rounded-xl shadow-lg shadow-blue-500/30"
               >
                 Simpan Struk (Gratis)
               </button>
@@ -247,14 +277,16 @@ export default function Home() {
 }
 
 // =========================================================================
-// KOMPONEN ANAK: TokenRow (Membaca saldo masing-masing token)
+// KOMPONEN ANAK: TokenRow (Logika Hiding Privasi Ada di Sini)
 // =========================================================================
 function TokenRow({
   community,
+  isOpen,
   userAddress,
   onUpdateBalance,
 }: {
   community: any;
+  isOpen: boolean;
   userAddress: string | undefined;
   onUpdateBalance: (addr: string, bal: number) => void;
 }) {
@@ -293,6 +325,14 @@ function TokenRow({
     onUpdateBalance(community.contractAddress, formattedBalance);
   }, [formattedBalance, community.contractAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // =======================================================================
+  // LOGIKA PRIVASI (ACCESS CONTROL):
+  // Jika komunitas ini CLOSED, dan user tidak punya saldo (0), SEMBUNYIKAN!
+  // =======================================================================
+  if (!isOpen && formattedBalance === 0) {
+    return null;
+  }
+
   const initial = community.symbol ? community.symbol.charAt(0).toUpperCase() : "T";
 
   return (
@@ -302,7 +342,14 @@ function TokenRow({
           {initial}
         </div>
         <div>
-          <h3 className="font-bold text-slate-800 text-sm">{community.symbol}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-slate-800 text-sm">{community.symbol}</h3>
+            {!isOpen && (
+              <span className="text-[8px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-bold tracking-wider">
+                PRIVATE
+              </span>
+            )}
+          </div>
           <p className="text-[10px] text-slate-500">{community.name}</p>
         </div>
       </div>

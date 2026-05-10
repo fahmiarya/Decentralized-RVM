@@ -4,16 +4,17 @@ import { useEffect, useState } from "react";
 import Link from "next/dist/client/link";
 import { useAccount, useWriteContract } from "wagmi";
 
+// 1. [UPDATE ABI]: ABI sekarang menggunakan tipe data array ([]) untuk claimMultiple
 const COMMUNITY_ABI = [
   {
     inputs: [
-      { internalType: "uint256", name: "totalPlastic", type: "uint256" },
-      { internalType: "uint256", name: "totalMetal", type: "uint256" },
-      { internalType: "uint256", name: "nonce", type: "uint256" },
+      { internalType: "uint256[]", name: "totalPlastics", type: "uint256[]" },
+      { internalType: "uint256[]", name: "totalMetals", type: "uint256[]" },
+      { internalType: "uint256[]", name: "nonces", type: "uint256[]" },
       { internalType: "address", name: "deviceAddress", type: "address" },
-      { internalType: "bytes", name: "signature", type: "bytes" },
+      { internalType: "bytes[]", name: "signatures", type: "bytes[]" },
     ],
-    name: "batchClaim",
+    name: "claimMultiple",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",
@@ -26,7 +27,8 @@ export default function RiwayatPage() {
 
   const [receipts, setReceipts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"pending" | "claimed">("pending");
-  const [claimingId, setClaimingId] = useState<number | null>(null);
+  // 2. [UPDATE STATE]: State tidak lagi pakai ID tunggal, melainkan Alamat Komunitas
+  const [claimingCommunity, setClaimingCommunity] = useState<string | null>(null);
 
   // Ambil data struk dari LocalStorage saat halaman dimuat
   useEffect(() => {
@@ -72,53 +74,81 @@ export default function RiwayatPage() {
     return `${normalizedRAndS}1c` as `0x${string}`;
   };
 
-  const handleClaim = async (receipt: any) => {
+  // 3. [UPDATE FUNGSI KLAIM]: Menerima Array dari kelompok struk
+  const handleClaimBatch = async (contractAddress: string, groupReceipts: any[]) => {
     if (!userAddress) {
       alert("Harap hubungkan dompet (Wallet) Anda terlebih dahulu!");
       return;
     }
 
-    setClaimingId(receipt.id);
+    setClaimingCommunity(contractAddress);
 
     try {
-      const esp32Address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"; // Sesuai Public Key Mesin Anda
-      const fullSignature = await findVAndConstructSignature(
-        receipt.payload.signature,
-        receipt.payload.plastic,
-        receipt.payload.metal,
-        receipt.payload.nonce,
-        esp32Address,
-      );
+      // Pastikan Address ESP32 ini sesuai dengan milik Anda
+      const esp32Address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
-      // Eksekusi ke Blockchain
-      await writeContractAsync({
-        address: receipt.community.contractAddress as `0x${string}`,
-        abi: COMMUNITY_ABI,
-        functionName: "batchClaim",
-        args: [
-          BigInt(receipt.payload.plastic),
-          BigInt(receipt.payload.metal),
-          BigInt(receipt.payload.nonce),
+      // Siapkan Array kosong untuk diisi data dari semua struk
+      const plastics: bigint[] = [];
+      const metals: bigint[] = [];
+      const nonces: bigint[] = [];
+      const signatures: `0x${string}`[] = [];
+
+      // Proses semua signature secara sekuensial agar tidak terjadi race condition
+      for (const receipt of groupReceipts) {
+        const fullSig = await findVAndConstructSignature(
+          receipt.payload.signature,
+          receipt.payload.plastic,
+          receipt.payload.metal,
+          receipt.payload.nonce,
           esp32Address,
-          fullSignature,
-        ],
+        );
+
+        plastics.push(BigInt(receipt.payload.plastic));
+        metals.push(BigInt(receipt.payload.metal));
+        nonces.push(BigInt(receipt.payload.nonce));
+        signatures.push(fullSig);
+      }
+
+      // Eksekusi ke Blockchain (1x transaksi untuk semua item di dalam array)
+      await writeContractAsync({
+        address: contractAddress as `0x${string}`,
+        abi: COMMUNITY_ABI,
+        functionName: "claimMultiple",
+        args: [plastics, metals, nonces, esp32Address, signatures],
       });
 
-      // Jika sukses, ubah status struk menjadi 'claimed' di LocalStorage
-      const updatedReceipts = receipts.map(r => (r.id === receipt.id ? { ...r, status: "claimed" } : r));
+      // Update status semua struk yang berhasil diklaim menjadi 'claimed'
+      const claimedIds = groupReceipts.map(r => r.id);
+      const updatedReceipts = receipts.map(r => (claimedIds.includes(r.id) ? { ...r, status: "claimed" } : r));
+
       setReceipts(updatedReceipts);
       localStorage.setItem("rvm_receipts", JSON.stringify(updatedReceipts));
 
-      alert("🎉 Klaim Berhasil! Token telah masuk ke dompet Anda.");
+      alert(`🎉 Klaim ${groupReceipts.length} Struk Berhasil! Biaya gas Anda jadi sangat hemat.`);
     } catch (error) {
-      console.error("Gagal Klaim:", error);
-      alert("Klaim gagal. Pastikan Anda memiliki saldo Gas Fee yang cukup.");
+      console.error("Gagal Klaim Batch:", error);
+      alert("Klaim massal gagal. Pastikan saldo Gas Fee (MATIC/ETH) Anda cukup.");
     } finally {
-      setClaimingId(null);
+      setClaimingCommunity(null);
     }
   };
 
   const filteredReceipts = receipts.filter(r => r.status === activeTab);
+
+  // 4. [LOGIKA PENGELOMPOKAN]: Satukan struk pending berdasarkan Komunitas yang sama
+  const groupedPendingReceipts = filteredReceipts.reduce(
+    (acc, receipt) => {
+      if (activeTab === "pending") {
+        const addr = receipt.community.contractAddress;
+        if (!acc[addr]) {
+          acc[addr] = { community: receipt.community, items: [] };
+        }
+        acc[addr].items.push(receipt);
+      }
+      return acc;
+    },
+    {} as Record<string, { community: any; items: any[] }>,
+  );
 
   return (
     <div className="flex flex-col items-center justify-start p-4 min-h-screen bg-base-200 pb-32 pt-8 font-sans">
@@ -170,51 +200,67 @@ export default function RiwayatPage() {
               <p className="text-gray-400 font-medium text-sm">Tidak ada struk di kategori ini.</p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {filteredReceipts.map(receipt => (
-                <div key={receipt.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                  <div className="flex justify-between items-start mb-4 border-b border-gray-100 pb-3">
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 mb-0.5">{receipt.date}</p>
-                      <h3 className="font-bold text-slate-800 text-sm">📍 {receipt.community.name}</h3>
-                    </div>
-                    <span
-                      className={`px-2 py-1 rounded text-[10px] font-bold ${receipt.status === "claimed" ? "bg-green-100 text-green-600" : "bg-orange-100 text-orange-600"}`}
-                    >
-                      {receipt.status === "claimed" ? "SUKSES" : "PENDING"}
-                    </span>
-                  </div>
+            <div className="space-y-6">
+              {/* === JIKA TAB PENDING: TAMPILKAN BERDASARKAN KELOMPOK === */}
+              {activeTab === "pending"
+                ? Object.values(groupedPendingReceipts).map((group: any, idx: number) => {
+                    // Hitung total kumulatif dari kelompok ini untuk ditampilkan di UI
+                    const totalPlastik = group.items.reduce((sum: number, item: any) => sum + item.payload.plastic, 0);
+                    const totalMetal = group.items.reduce((sum: number, item: any) => sum + item.payload.metal, 0);
 
-                  <div className="flex gap-4 mb-4">
-                    <div className="flex-1 bg-blue-50/50 p-2.5 rounded-xl border border-blue-50 text-center">
-                      <p className="text-[10px] font-bold text-blue-400 uppercase">Plastik</p>
-                      <p className="font-black text-blue-700">
-                        {receipt.payload.plastic} <span className="font-normal text-xs">Botol</span>
-                      </p>
-                    </div>
-                    <div className="flex-1 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase">Metal</p>
-                      <p className="font-black text-slate-700">
-                        {receipt.payload.metal} <span className="font-normal text-xs">Kaleng</span>
-                      </p>
-                    </div>
-                  </div>
+                    return (
+                      <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-[#0288D1]/30">
+                        <div className="flex justify-between items-center mb-3">
+                          <h3 className="font-bold text-slate-800 text-sm">📍 {group.community.name}</h3>
+                          <span className="px-2 py-1 bg-blue-100 text-[#0288D1] rounded text-[10px] font-bold">
+                            {group.items.length} Struk
+                          </span>
+                        </div>
 
-                  {receipt.status === "pending" && (
-                    <button
-                      onClick={() => handleClaim(receipt)}
-                      disabled={claimingId === receipt.id}
-                      className="w-full btn btn-sm h-10 bg-[#0288D1] hover:bg-[#01579B] text-white border-none rounded-xl shadow-sm"
+                        <div className="text-xs text-gray-500 mb-4 border-b border-gray-100 pb-3">
+                          <p className="mb-1">Total akumulasi yang akan diklaim:</p>
+                          <div className="flex gap-2">
+                            <span className="font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                              {totalPlastik} Plastik
+                            </span>
+                            <span className="font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded">
+                              {totalMetal} Metal
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleClaimBatch(group.community.contractAddress, group.items)}
+                          disabled={claimingCommunity === group.community.contractAddress}
+                          className="w-full btn btn-sm h-10 bg-[#0288D1] hover:bg-[#01579B] text-white border-none rounded-xl shadow-sm"
+                        >
+                          {claimingCommunity === group.community.contractAddress ? (
+                            <span className="loading loading-spinner loading-xs"></span>
+                          ) : (
+                            `Klaim Semua (${group.items.length}) - 1x Bayar Gas`
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })
+                : /* === JIKA TAB CLAIMED: TAMPILKAN LIST BIASA === */
+                  filteredReceipts.map(receipt => (
+                    <div
+                      key={receipt.id}
+                      className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 opacity-70"
                     >
-                      {claimingId === receipt.id ? (
-                        <span className="loading loading-spinner loading-xs"></span>
-                      ) : (
-                        "Klaim ke Blockchain Sekarang"
-                      )}
-                    </button>
-                  )}
-                </div>
-              ))}
+                      <div className="flex justify-between items-center mb-2">
+                        <p className="text-[10px] font-bold text-gray-400">{receipt.date}</p>
+                        <span className="px-2 py-1 rounded text-[10px] font-bold bg-green-100 text-green-600">
+                          SUKSES
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-slate-800 text-sm mb-3">📍 {receipt.community.name}</h3>
+                      <div className="flex gap-2 text-xs font-bold text-gray-600 bg-gray-50 p-2 rounded-lg">
+                        <span>{receipt.payload.plastic} Plastik</span> • <span>{receipt.payload.metal} Metal</span>
+                      </div>
+                    </div>
+                  ))}
             </div>
           )}
         </section>

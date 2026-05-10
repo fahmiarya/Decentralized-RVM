@@ -16,6 +16,7 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
     uint256 public rewardRatePlastic;
     uint256 public rewardRateMetal;
     bool public isOpenCommunity;
+    mapping(address => bool) public isMember;
 
     uint256 public lifetimePlastic;
     uint256 public lifetimeMetal;
@@ -27,6 +28,7 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
 
     mapping(address => mapping(uint256 => bool)) public usedNonces;
     mapping(address => bool) public whitelistedDevices;
+    address[] public registeredDevices;
 
     // [TAMBAHAN BARU] Mapping: Alamat Mesin -> Hari Ke-Berapa (timestamp / 1 days) -> Total item yang sudah diklaim
     mapping(address => mapping(uint256 => uint256)) public dailyDeviceClaims;
@@ -68,8 +70,20 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     function setWhitelistedDevice(address device, bool status) external onlyOwner {
+        // Jika sebelumnya belum terdaftar dan sekarang didaftarkan (true)
+        if (status == true && whitelistedDevices[device] == false) {
+            registeredDevices.push(device);
+        }
+
         whitelistedDevices[device] = status;
-        emit DeviceWhitelisted(device, status);
+    }
+
+    function registerMember(address _user, bool _status) external onlyOwner {
+        isMember[_user] = _status;
+    }
+
+    function getRegisteredDevices() external view returns (address[] memory) {
+        return registeredDevices;
     }
 
     function updateRewardRates(uint256 _ratePlastic, uint256 _rateMetal) external onlyOwner {
@@ -89,23 +103,26 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         marketToken.safeTransfer(owner(), amount); // Gunakan safeTransfer
     }
 
-    // --- FUNGSI KLAIM DENGAN PROTEKSI MAKSIMAL ---
-    function batchClaim(
+    // ------------------------------------------------------------------------
+    // 1. FUNGSI INTERNAL (Logic Utama - Validasi, Limit Harian, & Minting)
+    // ------------------------------------------------------------------------
+    function _processClaim(
         uint256 totalPlastic,
         uint256 totalMetal,
         uint256 nonce,
         address deviceAddress,
         bytes memory signature
-    ) external nonReentrant whenNotPaused {
+    ) internal {
         require(whitelistedDevices[deviceAddress], "RVM: Perangkat tidak terotorisasi");
         require(!usedNonces[msg.sender][nonce], "RVM: Nonce sudah digunakan");
+        require(isOpenCommunity || isMember[msg.sender], "RVM: Anda bukan anggota komunitas privat ini!");
 
         bytes32 messageHash = sha256(abi.encodePacked(totalPlastic, totalMetal, nonce, deviceAddress));
         address signer = ECDSA.recover(messageHash, signature);
         require(signer == deviceAddress, "RVM: Manipulasi data terdeteksi (Signature tidak valid)");
 
-        // [TAMBAHAN BARU] ON-CHAIN RATE LIMITING (Membatasi V_asset harian per perangkat)
-        uint256 today = block.timestamp / 1 days; // Mengubah detik timestamp menjadi "Hari"
+        // ON-CHAIN RATE LIMITING (Membatasi V_asset harian per perangkat)
+        uint256 today = block.timestamp / 1 days;
         uint256 totalItems = totalPlastic + totalMetal;
         require(
             dailyDeviceClaims[deviceAddress][today] + totalItems <= dailyCapacityLimit,
@@ -129,6 +146,25 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         lifetimeMetal += totalMetal;
 
         emit RewardsClaimed(msg.sender, totalReward);
+    }
+
+    // ------------------------------------------------------------------------
+    // 2. FUNGSI EKSTERNAL (Menerima Array dari HP untuk 1x Bayar Gas Fee)
+    // ------------------------------------------------------------------------
+    function claimMultiple(
+        uint256[] calldata totalPlastics,
+        uint256[] calldata totalMetals,
+        uint256[] calldata nonces,
+        address deviceAddress,
+        bytes[] calldata signatures
+    ) external nonReentrant whenNotPaused {
+        require(totalPlastics.length == signatures.length, "RVM: Data array tidak sinkron");
+        require(totalPlastics.length > 0, "RVM: Tidak ada data untuk diklaim");
+
+        // Melakukan looping untuk mengeksekusi semua struk yang dikirim dari HP
+        for (uint256 i = 0; i < totalPlastics.length; i++) {
+            _processClaim(totalPlastics[i], totalMetals[i], nonces[i], deviceAddress, signatures[i]);
+        }
     }
 }
 
