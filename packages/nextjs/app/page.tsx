@@ -8,9 +8,16 @@ import { useTargetNetwork } from "~~/hooks/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { useBleStore } from "~~/services/store/useBLEstore";
 
-// ABI untuk membaca status Open/Closed dari masing-masing komunitas
+// [UPDATE] ABI: Tambahkan fungsi isMember agar bisa dibaca massal
 const communityAbi = [
   { inputs: [], name: "isOpenCommunity", outputs: [{ type: "bool" }], stateMutability: "view", type: "function" },
+  {
+    inputs: [{ name: "account", type: "address" }],
+    name: "isMember",
+    outputs: [{ type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
 ] as const;
 
 export default function Home() {
@@ -29,7 +36,7 @@ export default function Home() {
     functionName: "getAllCommunityDetails",
   });
 
-  // 2. Fetch Status Open/Closed untuk SEMUA Komunitas sekaligus (Batch Read)
+  // 2a. Fetch Status Open/Closed untuk SEMUA Komunitas sekaligus (Batch Read)
   const { data: openStatuses } = useReadContracts({
     contracts: (dynamicCommunities || []).map((c: any) => ({
       address: c.contractAddress as `0x${string}`,
@@ -38,19 +45,30 @@ export default function Home() {
     })),
   });
 
-  // 3. Filter Komunitas Publik (Hanya untuk Dropdown)
-  const publicCommunities =
+  // 2b. [TAMBAHAN] Fetch Status isMember untuk SEMUA Komunitas sekaligus
+  const { data: memberStatuses } = useReadContracts({
+    contracts: (dynamicCommunities || []).map((c: any) => ({
+      address: c.contractAddress as `0x${string}`,
+      abi: communityAbi,
+      functionName: "isMember",
+      args: [(userAddress as `0x${string}`) || "0x0000000000000000000000000000000000000000"],
+    })),
+  });
+
+  // 3. [UPDATE] Filter Komunitas yang BISA DIPILIH (Open ATAU user terdaftar di whitelist)
+  const allowedCommunities =
     dynamicCommunities?.filter((comm: any, idx: number) => {
-      // Jika masih loading (undefined), anggap true sementara. Hide hanya jika eksplisit false (Closed)
-      return openStatuses?.[idx]?.result !== false;
+      const isOpen = openStatuses?.[idx]?.result !== false; // Default true jika loading
+      const isUserMember = memberStatuses?.[idx]?.result === true;
+      return isOpen || isUserMember;
     }) || [];
 
-  // Set Default Dropdown ke Komunitas Publik Pertama
+  // Set Default Dropdown ke Komunitas Pertama yang Diizinkan
   useEffect(() => {
-    if (publicCommunities.length > 0 && !activeCommunity) {
-      setActiveCommunity(publicCommunities[0]);
+    if (allowedCommunities.length > 0 && !activeCommunity) {
+      setActiveCommunity(allowedCommunities[0]);
     }
-  }, [publicCommunities, activeCommunity]);
+  }, [allowedCommunities, activeCommunity]);
 
   const handleUpdateBalance = (contractAddress: string, balance: number) => {
     setTokenBalances(prev => {
@@ -134,10 +152,10 @@ export default function Home() {
 
         {/* --- BAGIAN 2: KONTEN UTAMA (WALLET) --- */}
         <section className="px-6 pt-8 pb-8">
-          {/* LOKASI RVM (HANYA MENAMPILKAN PUBLIC COMMUNITY) */}
+          {/* LOKASI RVM (HANYA MENAMPILKAN KOMUNITAS YANG DIIZINKAN) */}
           <div className="bg-[#F8FAFC] p-4 rounded-2xl mb-8 border border-gray-100">
             <label className="text-[10px] text-gray-500 font-bold tracking-wider mb-2 block">
-              KONEKSI KOMUNITAS RVM (PUBLIK)
+              KONEKSI KOMUNITAS RVM
             </label>
             {isLoading || !dynamicCommunities ? (
               <div className="w-full h-10 bg-gray-200 animate-pulse rounded-xl"></div>
@@ -146,11 +164,11 @@ export default function Home() {
                 className="select select-bordered w-full bg-white text-slate-800 font-bold h-10 min-h-0 rounded-xl focus:outline-none focus:border-blue-500 shadow-sm"
                 value={activeCommunity?.contractAddress || ""}
                 onChange={e => {
-                  const selected = publicCommunities.find((c: any) => c.contractAddress === e.target.value);
+                  const selected = allowedCommunities.find((c: any) => c.contractAddress === e.target.value);
                   if (selected) setActiveCommunity(selected);
                 }}
               >
-                {publicCommunities.map((comm: any, idx: number) => (
+                {allowedCommunities.map((comm: any, idx: number) => (
                   <option key={idx} value={comm.contractAddress}>
                     {comm.name} ({comm.symbol})
                   </option>
@@ -173,14 +191,16 @@ export default function Home() {
                 Belum ada token RVM terdaftar.
               </div>
             ) : (
-              // Kita melempar SELURUH komunitas ke TokenRow, logika hiding ada di dalam TokenRow
+              // Melempar properti isMember ke komponen TokenRow
               dynamicCommunities.map((comm: any, idx: number) => {
                 const isOpen = openStatuses?.[idx]?.result !== false;
+                const isMember = memberStatuses?.[idx]?.result === true;
                 return (
                   <TokenRow
                     key={idx}
                     community={comm}
                     isOpen={isOpen}
+                    isMember={isMember}
                     userAddress={userAddress}
                     onUpdateBalance={handleUpdateBalance}
                   />
@@ -241,18 +261,18 @@ export default function Home() {
 
             <div className="mb-6">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide ml-1 mb-2 block">
-                Pilih Komunitas (Publik)
+                Pilih Komunitas
               </label>
               <select
                 className="select select-bordered w-full bg-white text-slate-800 font-bold h-12 focus:outline-none focus:border-[#0288D1]"
                 value={activeCommunity?.contractAddress || ""}
                 onChange={e => {
-                  const selected = publicCommunities?.find((c: any) => c.contractAddress === e.target.value);
+                  const selected = allowedCommunities?.find((c: any) => c.contractAddress === e.target.value);
                   if (selected) setActiveCommunity(selected);
                 }}
               >
-                {/* HANYA MUNCULKAN KOMUNITAS PUBLIC DI POP-UP */}
-                {publicCommunities?.map((comm: any, idx: number) => (
+                {/* [UPDATE] HANYA MUNCULKAN KOMUNITAS YANG DIIZINKAN DI POP-UP */}
+                {allowedCommunities?.map((comm: any, idx: number) => (
                   <option key={idx} value={comm.contractAddress}>
                     {comm.name} ({comm.symbol})
                   </option>
@@ -282,11 +302,13 @@ export default function Home() {
 function TokenRow({
   community,
   isOpen,
+  isMember, // <--- Property baru
   userAddress,
   onUpdateBalance,
 }: {
   community: any;
   isOpen: boolean;
+  isMember: boolean; // <--- Property baru
   userAddress: string | undefined;
   onUpdateBalance: (addr: string, bal: number) => void;
 }) {
@@ -326,10 +348,10 @@ function TokenRow({
   }, [formattedBalance, community.contractAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // =======================================================================
-  // LOGIKA PRIVASI (ACCESS CONTROL):
-  // Jika komunitas ini CLOSED, dan user tidak punya saldo (0), SEMBUNYIKAN!
+  // [UPDATE] LOGIKA PRIVASI (ACCESS CONTROL SEJATI):
+  // Sembunyikan JIKA: Komunitas Closed DAN User Bukan Member DAN Saldo Nol.
   // =======================================================================
-  if (!isOpen && formattedBalance === 0) {
+  if (!isOpen && !isMember && formattedBalance === 0) {
     return null;
   }
 

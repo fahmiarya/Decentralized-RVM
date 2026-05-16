@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useReadContract, useReadContracts, useWriteContract } from "wagmi";
+import { useAccount, useReadContract, useReadContracts, useWriteContract } from "wagmi";
 import { useScaffoldReadContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
 
 // ABI dipindah ke atas agar bisa dipakai bersama
@@ -20,6 +20,9 @@ const communityAbi = [
 ] as const;
 
 export default function AdminDashboard() {
+  // [TAMBAHAN]: Tarik address dompet yang sedang terhubung
+  const { address: userAddress } = useAccount();
+
   // State untuk Create Community
   const [communityName, setCommunityName] = useState("");
   const [plasticRate, setPlasticRate] = useState("");
@@ -29,7 +32,7 @@ export default function AdminDashboard() {
   const [marketTokenAddress, setMarketTokenAddress] = useState("");
   const [isOpenCommunity, setIsOpenCommunity] = useState(true);
 
-  // [UPDATE] State Gabungan untuk Management (Satu Pintu)
+  // State Gabungan untuk Management (Satu Pintu)
   const [manageCommunityAddr, setManageCommunityAddr] = useState("");
   const [deviceAddress, setDeviceAddress] = useState("");
   const [memberAddress, setMemberAddress] = useState("");
@@ -44,17 +47,23 @@ export default function AdminDashboard() {
     functionName: "getAllCommunityDetails",
   });
 
-  // Baca status Open/Closed untuk SEMUA komunitas sekaligus
+  // =========================================================================
+  // [LOGIKA PRIVASI ADMIN]: Filter HANYA komunitas milik user yang sedang aktif
+  // =========================================================================
+  const myCommunities =
+    deployedCommunities?.filter((c: any) => userAddress && c.owner.toLowerCase() === userAddress.toLowerCase()) || [];
+
+  // Baca status Open/Closed HANYA untuk komunitas milik Admin ini
   const { data: openStatuses } = useReadContracts({
-    contracts: (deployedCommunities || []).map((c: any) => ({
+    contracts: myCommunities.map((c: any) => ({
       address: c.contractAddress as `0x${string}`,
       abi: communityAbi,
       functionName: "isOpenCommunity",
     })),
   });
 
-  // [LOGIKA DINAMIS]: Cek apakah komunitas yang DIPILIH di dropdown adalah Closed
-  const selectedIndex = deployedCommunities?.findIndex((c: any) => c.contractAddress === manageCommunityAddr);
+  // Cek apakah komunitas yang DIPILIH di dropdown adalah Closed
+  const selectedIndex = myCommunities.findIndex((c: any) => c.contractAddress === manageCommunityAddr);
   const isSelectedClosed =
     selectedIndex !== undefined && selectedIndex >= 0 ? openStatuses?.[selectedIndex]?.result === false : false;
 
@@ -148,12 +157,26 @@ export default function AdminDashboard() {
     }
   };
 
+  // Tampilan jika dompet belum terhubung
+  if (!userAddress) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 text-center max-w-md">
+          <h2 className="text-xl font-bold text-blue-900 mb-2">Akses Ditolak</h2>
+          <p className="text-slate-500 text-sm">
+            Harap hubungkan dompet (Wallet) Anda terlebih dahulu untuk mengakses Panel Admin.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20 pt-8">
       <div className="max-w-3xl mx-auto px-4">
         {/* --- 1. ADD RVM COMMUNITY BOX --- */}
         <div className="bg-white border border-slate-200 rounded-3xl p-6 md:p-8 mb-8 shadow-sm">
-          <h3 className="text-xl font-bold text-blue-900 mb-6">Add RVM Community</h3>
+          <h3 className="text-xl font-bold text-blue-900 mb-6">Create New Community</h3>
           <form onSubmit={handleCreateCommunity} className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
@@ -272,7 +295,7 @@ export default function AdminDashboard() {
           </form>
         </div>
 
-        {/* --- 2. [UPDATE PENTING] MANAGE COMMUNITY BOX --- */}
+        {/* --- 2. MANAGE COMMUNITY BOX --- */}
         <div className="bg-white border border-slate-200 rounded-3xl p-6 md:p-8 mb-8 shadow-sm">
           <h3 className="text-xl font-bold text-blue-900 mb-6">Manage Community Access</h3>
 
@@ -286,14 +309,18 @@ export default function AdminDashboard() {
               <option value="" disabled>
                 -- Select Community to Manage --
               </option>
-              {deployedCommunities?.map((community: any, index: number) => {
-                const isClosed = openStatuses?.[index]?.result === false;
-                return (
-                  <option key={index} value={community.contractAddress}>
-                    {community.name} {isClosed ? "(Closed)" : "(Open)"}
-                  </option>
-                );
-              })}
+              {myCommunities.length > 0 ? (
+                myCommunities.map((community: any, index: number) => {
+                  const isClosed = openStatuses?.[index]?.result === false;
+                  return (
+                    <option key={index} value={community.contractAddress}>
+                      {community.name} {isClosed ? "(Closed)" : "(Open)"}
+                    </option>
+                  );
+                })
+              ) : (
+                <option disabled>Belum ada komunitas yang Anda buat</option>
+              )}
             </select>
           </div>
 
@@ -362,15 +389,16 @@ export default function AdminDashboard() {
             <div className="flex justify-center py-6">
               <span className="loading loading-dots loading-md text-blue-600"></span>
             </div>
-          ) : deployedCommunities && deployedCommunities.length > 0 ? (
+          ) : myCommunities.length > 0 ? (
             <div className="space-y-4">
-              {deployedCommunities.map((community: any, index: number) => (
+              {/* [UPDATE]: Map myCommunities instead of deployedCommunities */}
+              {myCommunities.map((community: any, index: number) => (
                 <CommunityCard key={index} community={community} />
               ))}
             </div>
           ) : (
             <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
-              <p className="text-slate-500 text-sm font-medium">No communities registered yet.</p>
+              <p className="text-slate-500 text-sm font-medium">Anda belum mengelola komunitas apapun.</p>
             </div>
           )}
         </div>
@@ -381,6 +409,7 @@ export default function AdminDashboard() {
 
 // =========================================================================
 // KOMPONEN ANAK: Merender setiap kartu komunitas dan mengambil datanya
+// (Kode bagian ini tidak ada perubahan fungsional, tetap sama)
 // =========================================================================
 function CommunityCard({ community }: { community: any }) {
   const { data: plasticCount } = useReadContract({

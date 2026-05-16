@@ -158,11 +158,17 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         address deviceAddress,
         bytes[] calldata signatures
     ) external nonReentrant whenNotPaused {
-        require(totalPlastics.length == signatures.length, "RVM: Data array tidak sinkron");
-        require(totalPlastics.length > 0, "RVM: Tidak ada data untuk diklaim");
+        uint256 length = totalPlastics.length;
+
+        // [PERBAIKAN] Pastikan SEMUA array memiliki panjang yang persis sama
+        require(length > 0, "RVM: Tidak ada data untuk diklaim");
+        require(
+            totalMetals.length == length && nonces.length == length && signatures.length == length,
+            "RVM: Data array tidak sinkron!"
+        );
 
         // Melakukan looping untuk mengeksekusi semua struk yang dikirim dari HP
-        for (uint256 i = 0; i < totalPlastics.length; i++) {
+        for (uint256 i = 0; i < length; i++) {
             _processClaim(totalPlastics[i], totalMetals[i], nonces[i], deviceAddress, signatures[i]);
         }
     }

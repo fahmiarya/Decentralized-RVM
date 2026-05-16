@@ -49,6 +49,36 @@ uint32_t current_nonce = 0;
 const char *ESP32_PRIVATE_KEY = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 const char *ESP32_PUBLIC_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
+void load_nonce_from_nvs()
+{
+    nvs_handle_t my_handle;
+    esp_err_t err = nvs_open("rvm_state", NVS_READWRITE, &my_handle);
+    if (err != ESP_OK)
+        return;
+
+    // Baca nonce terakhir yang tersimpan
+    err = nvs_get_u32(my_handle, "nonce", &current_nonce);
+    if (err == ESP_ERR_NVS_NOT_FOUND)
+    {
+        current_nonce = 0; // Jika baru pertama kali nyala dari pabrik
+    }
+    nvs_close(my_handle);
+    ESP_LOGI(TAG, "=> Nonce Terakhir Dimuat dari NVS: %lu", current_nonce);
+}
+
+void save_nonce_to_nvs()
+{
+    nvs_handle_t my_handle;
+    esp_err_t err = nvs_open("rvm_state", NVS_READWRITE, &my_handle);
+    if (err == ESP_OK)
+    {
+        nvs_set_u32(my_handle, "nonce", current_nonce);
+        nvs_commit(my_handle);
+        nvs_close(my_handle);
+        ESP_LOGI(TAG, "=> Nonce %lu berhasil disimpan ke NVS!", current_nonce);
+    }
+}
+
 void ble_app_advertise(void);
 
 static int device_access_cb(uint16_t conn_handle, uint16_t attr_handle,
@@ -90,6 +120,8 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         total_plastic = 0;
         total_metal = 0;
         current_nonce += 1; // Buat ID Transaksi (Nonce) baru untuk sesi ini
+
+        save_nonce_to_nvs();
 
         ESP_LOGI(TAG, "--- SESI RVM DIMULAI ---");
         ESP_LOGI(TAG, "Nonce Sesi Ini: %lu", current_nonce);
@@ -194,7 +226,7 @@ void hex2bytes(const char *hex, uint8_t *bytes, size_t len)
     }
 }
 
-void generate_signature(uint32_t plastic, uint32_t metal, uint32_t nonce, const char *priv_key_hex, const char *addr_hex, char *sig_out)
+bool generate_signature(uint32_t plastic, uint32_t metal, uint32_t nonce, const char *priv_key_hex, const char *addr_hex, char *sig_out)
 {
     uint8_t pack[116] = {0};
 
@@ -226,12 +258,30 @@ void generate_signature(uint32_t plastic, uint32_t metal, uint32_t nonce, const 
     mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, (const unsigned char *)pers, strlen(pers));
 
     mbedtls_ecp_group_load(&ctx.MBEDTLS_PRIVATE(grp), MBEDTLS_ECP_DP_SECP256K1);
-    mbedtls_mpi_read_string(&ctx.MBEDTLS_PRIVATE(d), 16, priv_key_hex);
+
+    int ret; // Variabel penyimpan status error mbedTLS
+
+    // Load Private Key
+    ret = mbedtls_mpi_read_string(&ctx.MBEDTLS_PRIVATE(d), 16, priv_key_hex);
+    if (ret != 0)
+    {
+        ESP_LOGE(TAG, "❌ [KRIPTOGRAFI] Gagal membaca Private Key! Error Code: -0x%04X", -ret);
+        goto cleanup; // Lompat ke bagian bersih-bersih memori
+    }
 
     mbedtls_mpi r, s;
     mbedtls_mpi_init(&r);
     mbedtls_mpi_init(&s);
-    mbedtls_ecdsa_sign(&ctx.MBEDTLS_PRIVATE(grp), &r, &s, &ctx.MBEDTLS_PRIVATE(d), hash, 32, mbedtls_ctr_drbg_random, &ctr_drbg);
+
+    // Lakukan Proses Tanda Tangan
+    ret = mbedtls_ecdsa_sign(&ctx.MBEDTLS_PRIVATE(grp), &r, &s, &ctx.MBEDTLS_PRIVATE(d), hash, 32, mbedtls_ctr_drbg_random, &ctr_drbg);
+    if (ret != 0)
+    {
+        ESP_LOGE(TAG, "❌ [KRIPTOGRAFI] Gagal ECDSA Sign! (Mungkin kurang entropy). Error Code: -0x%04X", -ret);
+        mbedtls_mpi_free(&r);
+        mbedtls_mpi_free(&s);
+        goto cleanup;
+    }
 
     uint8_t r_buf[32] = {0};
     uint8_t s_buf[32] = {0};
@@ -250,9 +300,15 @@ void generate_signature(uint32_t plastic, uint32_t metal, uint32_t nonce, const 
 
     mbedtls_mpi_free(&r);
     mbedtls_mpi_free(&s);
+
+    // Bersihkan memori sebelum keluar
+cleanup:
     mbedtls_ecdsa_free(&ctx);
     mbedtls_ctr_drbg_free(&ctr_drbg);
     mbedtls_entropy_free(&entropy);
+
+    // Return true jika sukses (ret == 0), false jika gagal
+    return (ret == 0);
 }
 
 void button_task(void *arg)
@@ -283,20 +339,28 @@ void button_task(void *arg)
                 if (notify_state)
                 {
                     char rs_hex[130];
-                    // Generate signature baru untuk angka yang baru
-                    generate_signature(total_plastic, total_metal, current_nonce, ESP32_PRIVATE_KEY, ESP32_PUBLIC_ADDRESS, rs_hex);
+                    bool is_sign_success = generate_signature(total_plastic, total_metal, current_nonce, ESP32_PRIVATE_KEY, ESP32_PUBLIC_ADDRESS, rs_hex);
 
-                    char payload[256];
-                    snprintf(payload, sizeof(payload), "%lu,%lu,%lu,0x%s",
-                             total_plastic, total_metal, current_nonce, rs_hex);
+                    if (is_sign_success)
+                    {
+                        // Kemas Payload
+                        char payload[256];
+                        snprintf(payload, sizeof(payload), "%lu,%lu,%lu,0x%s",
+                                 total_plastic, total_metal, current_nonce, rs_hex);
 
-                    memset(sensor_data_val, 0, sizeof(sensor_data_val));
-                    memcpy(sensor_data_val, payload, strlen(payload));
-                    sensor_data_len = strlen(payload);
+                        memset(sensor_data_val, 0, sizeof(sensor_data_val));
+                        memcpy(sensor_data_val, payload, strlen(payload));
+                        sensor_data_len = strlen(payload);
 
-                    // Kirim Notifikasi via BLE
-                    ble_gatts_chr_updated(sensor_val_handle);
-                    ESP_LOGI(TAG, "Data Terkirim ke HP: %lu Botol", total_plastic);
+                        // Tembakkan via Bluetooth
+                        ble_gatts_chr_updated(sensor_val_handle);
+                        ESP_LOGI(TAG, "=> Payload Terkirim ke HP warga!");
+                    }
+                    else
+                    {
+                        // Jangan kirim apa-apa agar HP tidak menerima data sampah
+                        ESP_LOGE(TAG, "⛔ Batal mengirim data via BLE karena gagal membuat Digital Signature!");
+                    }
                 }
             }
             else
@@ -320,6 +384,10 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    load_nonce_from_nvs();
+
+    ble_att_set_preferred_mtu(256);
 
     nimble_port_init();
     ble_svc_gap_init();

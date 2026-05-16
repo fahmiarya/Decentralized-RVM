@@ -74,7 +74,7 @@ export default function RiwayatPage() {
     return `${normalizedRAndS}1c` as `0x${string}`;
   };
 
-  // 3. [UPDATE FUNGSI KLAIM]: Menerima Array dari kelompok struk
+  // 3. [UPDATE FUNGSI KLAIM]: Menerima Array dari kelompok struk DENGAN CHUNKING
   const handleClaimBatch = async (contractAddress: string, groupReceipts: any[]) => {
     if (!userAddress) {
       alert("Harap hubungkan dompet (Wallet) Anda terlebih dahulu!");
@@ -84,17 +84,20 @@ export default function RiwayatPage() {
     setClaimingCommunity(contractAddress);
 
     try {
-      // Pastikan Address ESP32 ini sesuai dengan milik Anda
       const esp32Address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
-      // Siapkan Array kosong untuk diisi data dari semua struk
+      // [TAMBAHAN LIMITASI GAS] Batasi maksimal 30 struk sekali klaim untuk mencegah Out-of-Gas
+      const MAX_BATCH_SIZE = 30;
+      const receiptsToProcess = groupReceipts.slice(0, MAX_BATCH_SIZE);
+
+      // Siapkan Array kosong untuk diisi data
       const plastics: bigint[] = [];
       const metals: bigint[] = [];
       const nonces: bigint[] = [];
       const signatures: `0x${string}`[] = [];
 
-      // Proses semua signature secara sekuensial agar tidak terjadi race condition
-      for (const receipt of groupReceipts) {
+      // Proses signature secara sekuensial hanya untuk struk yang diproses (max 30)
+      for (const receipt of receiptsToProcess) {
         const fullSig = await findVAndConstructSignature(
           receipt.payload.signature,
           receipt.payload.plastic,
@@ -117,14 +120,21 @@ export default function RiwayatPage() {
         args: [plastics, metals, nonces, esp32Address, signatures],
       });
 
-      // Update status semua struk yang berhasil diklaim menjadi 'claimed'
-      const claimedIds = groupReceipts.map(r => r.id);
+      // Update status struk HANYA yang berhasil diklaim pada batch ini
+      const claimedIds = receiptsToProcess.map(r => r.id);
       const updatedReceipts = receipts.map(r => (claimedIds.includes(r.id) ? { ...r, status: "claimed" } : r));
 
       setReceipts(updatedReceipts);
       localStorage.setItem("rvm_receipts", JSON.stringify(updatedReceipts));
 
-      alert(`🎉 Klaim ${groupReceipts.length} Struk Berhasil! Biaya gas Anda jadi sangat hemat.`);
+      // Info notifikasi yang lebih dinamis
+      if (groupReceipts.length > MAX_BATCH_SIZE) {
+        alert(
+          `🎉 Klaim ${MAX_BATCH_SIZE} struk pertama berhasil! Silakan klik tombol klaim lagi untuk sisa struk Anda.`,
+        );
+      } else {
+        alert(`🎉 Klaim ${receiptsToProcess.length} Struk Berhasil! Biaya gas Anda jadi sangat hemat.`);
+      }
     } catch (error) {
       console.error("Gagal Klaim Batch:", error);
       alert("Klaim massal gagal. Pastikan saldo Gas Fee (MATIC/ETH) Anda cukup.");
