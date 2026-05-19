@@ -62,6 +62,7 @@
     "@capacitor-community/bluetooth-le": "^8.1.2",
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^8.2.0",
-    "@capacitor/core": "^8.2.0"
+    "@capacitor/core": "^8.2.0",
+    "@yudiel/react-qr-scanner": "^2.6.0"
   }
 }

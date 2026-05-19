@@ -74,6 +74,7 @@
   color utility to any element that depends on these defaults.
 */
 @layer base {
+
   *,
   ::after,
   ::before,
@@ -118,4 +119,18 @@
 
 .link:hover {
   opacity: 80%;
+}
+
+@keyframes scanLine {
+  0% {
+    top: 0%;
+  }
+
+  50% {
+    top: 100%;
+  }
+
+  100% {
+    top: 0%;
+  }
 }

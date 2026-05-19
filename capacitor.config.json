@@ -1,9 +1,6 @@
 {
   "appId": "com.rvm.app",
   "appName": "RVM App",
-  "webDir": "packages/nextjs/out",
-  "server": {
-    "url": "http://10.101.103.218:3000",
-    "cleartext": true
-  }
+  "webDir": "packages/nextjs/out"
+  
 }

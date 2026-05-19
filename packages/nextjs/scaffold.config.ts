@@ -15,14 +15,14 @@ const customHardhat = {
   ...chains.hardhat,
   rpcUrls: {
     ...chains.hardhat.rpcUrls,
-    default: { http: ["http://192.168.88.201:8545"] },
-    public: { http: ["http://192.168.88.201:8545"] },
+    default: { http: ["http://10.168.93.48:8545"] },
+    public: { http: ["http://10.168.93.48:8545"] },
   },
 } as const satisfies chains.Chain;
 
 const scaffoldConfig = {
   // The networks on which your DApp is live
-  targetNetworks: [customHardhat],
+  targetNetworks: [chains.polygonAmoy],
 
   // The interval at which your front-end polls the RPC servers for new data
   // it has no effect if you only target the local network (default is 4000)
@@ -37,8 +37,7 @@ const scaffoldConfig = {
   // If you want to use a different RPC for a specific network, you can add it here.
   // The key is the chain ID, and the value is the HTTP RPC URL
   rpcOverrides: {
-    // Example:
-    [customHardhat.id]: "http://192.168.88.201:8545",
+    31337: "http://127.0.0.1:8545",
   },
 
   // This is ours WalletConnect's default project ID.

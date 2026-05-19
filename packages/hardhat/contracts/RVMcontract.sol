@@ -94,6 +94,7 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
 
     // [TAMBAHAN BARU] Fungsi Admin untuk mengubah batas maksimal harian (Jika mesin fisik di-upgrade ukurannya)
     function updateDailyCapacityLimit(uint256 _newLimit) external onlyOwner {
+        require(_newLimit > 0, "RVM: Kapasitas harian tidak boleh nol!");
         dailyCapacityLimit = _newLimit;
         emit DailyCapacityUpdated(_newLimit);
     }
@@ -117,7 +118,7 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         require(!usedNonces[msg.sender][nonce], "RVM: Nonce sudah digunakan");
         require(isOpenCommunity || isMember[msg.sender], "RVM: Anda bukan anggota komunitas privat ini!");
 
-        bytes32 messageHash = sha256(abi.encodePacked(totalPlastic, totalMetal, nonce, deviceAddress));
+        bytes32 messageHash = sha256(abi.encodePacked(totalPlastic, totalMetal, nonce, deviceAddress,msg.sender));
         address signer = ECDSA.recover(messageHash, signature);
         require(signer == deviceAddress, "RVM: Manipulasi data terdeteksi (Signature tidak valid)");
 
@@ -162,6 +163,7 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
 
         // [PERBAIKAN] Pastikan SEMUA array memiliki panjang yang persis sama
         require(length > 0, "RVM: Tidak ada data untuk diklaim");
+        require(length <= 50, "RVM: Maksimal klaim 50 struk per transaksi!");
         require(
             totalMetals.length == length && nonces.length == length && signatures.length == length,
             "RVM: Data array tidak sinkron!"

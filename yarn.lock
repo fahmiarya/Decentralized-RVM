@@ -6567,6 +6567,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/emscripten@npm:^1.41.5":
+  version: 1.41.5
+  resolution: "@types/emscripten@npm:1.41.5"
+  checksum: 0751ffb9897d0b3599789307cc4939e46e0dd6c94f5a0128ec90b486debc342b7800598bfe2b3bad167c3daa22132ce81e3e4b35b60e8c1e8c7713ec3aa2a78e
+  languageName: node
+  linkType: hard
+
 "@types/eslint@npm:^9.6.1":
   version: 9.6.1
   resolution: "@types/eslint@npm:9.6.1"
@@ -7837,6 +7844,19 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@yudiel/react-qr-scanner@npm:^2.6.0":
+  version: 2.6.0
+  resolution: "@yudiel/react-qr-scanner@npm:2.6.0"
+  dependencies:
+    barcode-detector: ^3.1.3
+    webrtc-adapter: ^9.0.5
+  peerDependencies:
+    react: ^17 || ^18 || ^19
+    react-dom: ^17 || ^18 || ^19
+  checksum: 085ba2d80cbeab6ab8d26e8900d085ebe544987084822e7d2f448649534a0b31883acee40197ebc274c25b2d2a0ce1ae1a3f9105a6097f8a3ddddc46ae88d55e
+  languageName: node
+  linkType: hard
+
 "abbrev@npm:1":
   version: 1.1.1
   resolution: "abbrev@npm:1.1.1"
@@ -8545,6 +8565,15 @@ __metadata:
   version: 4.0.4
   resolution: "balanced-match@npm:4.0.4"
   checksum: fb07bb66a0959c2843fc055838047e2a95ccebb837c519614afb067ebfdf2fa967ca8d712c35ced07f2cd26fc6f07964230b094891315ad74f11eba3d53178a0
+  languageName: node
+  linkType: hard
+
+"barcode-detector@npm:^3.1.3":
+  version: 3.1.3
+  resolution: "barcode-detector@npm:3.1.3"
+  dependencies:
+    zxing-wasm: 3.0.3
+  checksum: 3bd0ec2372f8ee0b7631d60b51dcce2775085c4b5a5d91d9a473d243dfd8461c10e17af3868a73ddad9063f57ca7e74ed94301fb272c3d1a7cf678494419e778
   languageName: node
   linkType: hard
 
@@ -17634,6 +17663,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"sdp@npm:^3.2.0":
+  version: 3.2.2
+  resolution: "sdp@npm:3.2.2"
+  checksum: a3160deec2ac4c10d083fcc44058e0c3d5a083ba4310d9283d6eeca086ea934ca5155dfa7cc9ad16e1a4bc653d30e98dac4c48bf2ed886f4322f7a8ffae767f6
+  languageName: node
+  linkType: hard
+
 "se-2@workspace:.":
   version: 0.0.0-use.local
   resolution: "se-2@workspace:."
@@ -17642,6 +17678,7 @@ __metadata:
     "@capacitor/android": ^8.2.0
     "@capacitor/cli": ^8.2.0
     "@capacitor/core": ^8.2.0
+    "@yudiel/react-qr-scanner": ^2.6.0
     husky: ^9.1.6
     lint-staged: ^15.2.10
   languageName: unknown
@@ -18716,6 +18753,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"tagged-tag@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "tagged-tag@npm:1.0.0"
+  checksum: e37653df3e495daa7ea7790cb161b810b00075bba2e4d6c93fb06a709e747e3ae9da11a120d0489833203926511b39e038a2affbd9d279cfb7a2f3fcccd30b5d
+  languageName: node
+  linkType: hard
+
 "tailwindcss@npm:4.2.1, tailwindcss@npm:^4.1.3":
   version: 4.2.1
   resolution: "tailwindcss@npm:4.2.1"
@@ -19136,6 +19180,15 @@ __metadata:
   version: 4.41.0
   resolution: "type-fest@npm:4.41.0"
   checksum: 7055c0e3eb188425d07403f1d5dc175ca4c4f093556f26871fe22041bc93d137d54bef5851afa320638ca1379106c594f5aa153caa654ac1a7f22c71588a4e80
+  languageName: node
+  linkType: hard
+
+"type-fest@npm:^5.6.0":
+  version: 5.6.0
+  resolution: "type-fest@npm:5.6.0"
+  dependencies:
+    tagged-tag: ^1.0.0
+  checksum: af2a7c85698cdca84a9e29a8c16c8b6a82beaea6d5655dbe8553a11f9ba4f86352db0647c20b9c7dbdc3bc61330026fb043d3883a16249be8203fcfdb12e2c51
   languageName: node
   linkType: hard
 
@@ -19988,6 +20041,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"webrtc-adapter@npm:^9.0.5":
+  version: 9.0.5
+  resolution: "webrtc-adapter@npm:9.0.5"
+  dependencies:
+    sdp: ^3.2.0
+  checksum: 18d2e1ad0a70bffc2808d0b57d9699eafad06126ea6e0a9ef1fa0e197a23e5c0a669939b346f5ebd088556db51e25b2f0ec628e3aa665e4c3cec0ef9278f01f5
+  languageName: node
+  linkType: hard
+
 "whatwg-url@npm:^5.0.0":
   version: 5.0.0
   resolution: "whatwg-url@npm:5.0.0"
@@ -20636,5 +20698,17 @@ __metadata:
     use-sync-external-store:
       optional: true
   checksum: bf856f2d86912d46439b6e32004b32b77518af49dc23fdc1998457777d860183e0a677498731b61f3d38717b62283e08dd38d1fc3714385e84ba87ef9f5aa4c6
+  languageName: node
+  linkType: hard
+
+"zxing-wasm@npm:3.0.3":
+  version: 3.0.3
+  resolution: "zxing-wasm@npm:3.0.3"
+  dependencies:
+    "@types/emscripten": ^1.41.5
+    type-fest: ^5.6.0
+  peerDependencies:
+    "@types/emscripten": ">=1.39.6"
+  checksum: 93c34097ce207e5d9a492556b4a1d0e84e1cf34d75d924fd79f6f382327fd89722ab4887ad043bbf1d25f3ea9e09c9e7707f5428f095e4e3f7dfee31a910b406
   languageName: node
   linkType: hard

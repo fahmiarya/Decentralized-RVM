@@ -24,17 +24,30 @@
 #define BUTTON_GPIO GPIO_NUM_9
 
 // UUID
+// 1. Service UUID: 4fafc201-1fb5-459e-8fcc-c5c9c331914b
 static const ble_uuid128_t gatt_svc_rvm_uuid =
     BLE_UUID128_INIT(0x4b, 0x91, 0x31, 0xc3, 0xc9, 0xc5, 0xcc, 0x8f,
                      0x9e, 0x45, 0xb5, 0x1f, 0x01, 0xc2, 0xaf, 0x4f);
 
+// 2. Notify UUID: beb5483e-36e1-4688-b7f5-ea07361b26a8
 static const ble_uuid128_t gatt_chr_sensor_uuid =
     BLE_UUID128_INIT(0xa8, 0x26, 0x1b, 0x36, 0x07, 0xea, 0xf5, 0xb7,
                      0x88, 0x46, 0xe1, 0x36, 0x3e, 0x48, 0xb5, 0xbe);
 
+// 3. Write Wallet UUID: cfc6594f-47f2-5799-c806-fb18472c37b9
+static const ble_uuid128_t gatt_chr_wallet_uuid =
+    BLE_UUID128_INIT(0xb9, 0x37, 0x2c, 0x47, 0x18, 0xfb, 0x06, 0xc8,
+                     0x99, 0x57, 0xf2, 0x47, 0x4f, 0x59, 0xc6, 0xcf);
+
+uint16_t wallet_val_handle;
 uint16_t conn_handle = BLE_HS_CONN_HANDLE_NONE;
 uint16_t sensor_val_handle;
 static bool notify_state = false;
+
+char current_user_wallet_hex[41] = {0}; // Menyimpan "0x..." dari HP
+bool is_session_active = false;
+uint32_t last_activity_time = 0;
+const uint32_t TIMEOUT_MS = 60000;
 
 // Buffer data
 uint8_t sensor_data_val[256] = {0};
@@ -88,6 +101,50 @@ static int device_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+static int wallet_write_cb(uint16_t conn_handle, uint16_t attr_handle,
+                           struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR)
+    {
+        char buffer[45] = {0}; // Menampung "0x..."
+        int len = OS_MBUF_PKTLEN(ctxt->om);
+
+        if (len > 0 && len <= 42)
+        {
+            os_mbuf_copydata(ctxt->om, 0, len, buffer);
+
+            // Bersihkan prefix "0x" jika ada dari aplikasi HP
+            const char *hex_start = buffer;
+            if (buffer[0] == '0' && (buffer[1] == 'x' || buffer[1] == 'X'))
+            {
+                hex_start = buffer + 2;
+                len -= 2;
+            }
+
+            // Validasi panjang Wallet Address Ethereum/Polygon (40 karakter hex)
+            if (len == 40)
+            {
+                strncpy(current_user_wallet_hex, hex_start, 40);
+                current_user_wallet_hex[40] = '\0'; // Null terminator aman
+
+                // MENGUNCI SESI!
+                is_session_active = true;
+                last_activity_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                total_plastic = 0; // Reset counter
+                total_metal = 0;
+
+                ESP_LOGI(TAG, "🔒 MESIN TERKUNCI UNTUK WALLET: 0x%s", current_user_wallet_hex);
+                ESP_LOGI(TAG, "🟢 Silakan masukkan botol Anda sekarang.");
+            }
+            else
+            {
+                ESP_LOGE(TAG, "❌ Format Wallet salah! Panjang: %d", len);
+            }
+        }
+    }
+    return 0;
+}
+
 static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -98,6 +155,13 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
                 .access_cb = device_access_cb,
                 .val_handle = &sensor_val_handle,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+            },
+            {
+                // 2. [TAMBAHAN BARU] Karakteristik Tulis (Terima Wallet dari HP)
+                .uuid = &gatt_chr_wallet_uuid.u,
+                .access_cb = wallet_write_cb,
+                .val_handle = &wallet_val_handle,
+                .flags = BLE_GATT_CHR_F_WRITE,
             },
             {0},
         },
@@ -226,9 +290,10 @@ void hex2bytes(const char *hex, uint8_t *bytes, size_t len)
     }
 }
 
-bool generate_signature(uint32_t plastic, uint32_t metal, uint32_t nonce, const char *priv_key_hex, const char *addr_hex, char *sig_out)
+bool generate_signature(uint32_t plastic, uint32_t metal, uint32_t nonce, const char *priv_key_hex, const char *addr_hex, const char *user_wallet_hex, char *sig_out)
 {
-    uint8_t pack[116] = {0};
+    // [UPDATE]: Ukuran payload sekarang 136 byte (karena ketambahan 20 byte dompet user)
+    uint8_t pack[136] = {0};
 
     pack[28] = plastic >> 24;
     pack[29] = plastic >> 16;
@@ -242,10 +307,16 @@ bool generate_signature(uint32_t plastic, uint32_t metal, uint32_t nonce, const 
     pack[93] = nonce >> 16;
     pack[94] = nonce >> 8;
     pack[95] = nonce;
+
+    // Masukkan alamat ESP32 (Device Address)
     hex2bytes(addr_hex + 2, &pack[96], 20);
 
+    // [TAMBAHAN BARU]: Masukkan alamat dompet warga (msg.sender) di belakangnya!
+    // current_user_wallet_hex sudah dibersihkan dari "0x" saat diterima via Bluetooth
+    hex2bytes(user_wallet_hex, &pack[116], 20);
+
     uint8_t hash[32];
-    mbedtls_sha256(pack, 116, hash, 0);
+    mbedtls_sha256(pack, 136, hash, 0); // Pastikan angka 136 di sini
 
     mbedtls_ecdsa_context ctx;
     mbedtls_entropy_context entropy;
@@ -259,25 +330,22 @@ bool generate_signature(uint32_t plastic, uint32_t metal, uint32_t nonce, const 
 
     mbedtls_ecp_group_load(&ctx.MBEDTLS_PRIVATE(grp), MBEDTLS_ECP_DP_SECP256K1);
 
-    int ret; // Variabel penyimpan status error mbedTLS
-
-    // Load Private Key
+    int ret;
     ret = mbedtls_mpi_read_string(&ctx.MBEDTLS_PRIVATE(d), 16, priv_key_hex);
     if (ret != 0)
     {
-        ESP_LOGE(TAG, "❌ [KRIPTOGRAFI] Gagal membaca Private Key! Error Code: -0x%04X", -ret);
-        goto cleanup; // Lompat ke bagian bersih-bersih memori
+        ESP_LOGE(TAG, "❌ Gagal membaca Private Key! Error: -0x%04X", -ret);
+        goto cleanup;
     }
 
     mbedtls_mpi r, s;
     mbedtls_mpi_init(&r);
     mbedtls_mpi_init(&s);
 
-    // Lakukan Proses Tanda Tangan
     ret = mbedtls_ecdsa_sign(&ctx.MBEDTLS_PRIVATE(grp), &r, &s, &ctx.MBEDTLS_PRIVATE(d), hash, 32, mbedtls_ctr_drbg_random, &ctr_drbg);
     if (ret != 0)
     {
-        ESP_LOGE(TAG, "❌ [KRIPTOGRAFI] Gagal ECDSA Sign! (Mungkin kurang entropy). Error Code: -0x%04X", -ret);
+        ESP_LOGE(TAG, "❌ Gagal ECDSA Sign! Error: -0x%04X", -ret);
         mbedtls_mpi_free(&r);
         mbedtls_mpi_free(&s);
         goto cleanup;
@@ -290,24 +358,18 @@ bool generate_signature(uint32_t plastic, uint32_t metal, uint32_t nonce, const 
     mbedtls_mpi_write_binary(&s, s_buf, 32);
 
     for (int i = 0; i < 32; i++)
-    {
         sprintf(&sig_out[i * 2], "%02x", r_buf[i]);
-    }
     for (int i = 0; i < 32; i++)
-    {
         sprintf(&sig_out[64 + (i * 2)], "%02x", s_buf[i]);
-    }
 
     mbedtls_mpi_free(&r);
     mbedtls_mpi_free(&s);
 
-    // Bersihkan memori sebelum keluar
 cleanup:
     mbedtls_ecdsa_free(&ctx);
     mbedtls_ctr_drbg_free(&ctr_drbg);
     mbedtls_entropy_free(&entropy);
 
-    // Return true jika sukses (ret == 0), false jika gagal
     return (ret == 0);
 }
 
@@ -325,9 +387,29 @@ void button_task(void *arg)
 
     while (1)
     {
-        int current_state = gpio_get_level(BUTTON_GPIO);
 
-        // Deteksi tombol ditekan (Transisi HIGH ke LOW)
+        if (is_session_active)
+        {
+            uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((current_time - last_activity_time) > TIMEOUT_MS)
+            {
+                ESP_LOGW(TAG, "⏱️ Waktu habis (60 detik)! Sesi dibatalkan.");
+
+                // Reset Sesi
+                is_session_active = false;
+                total_plastic = 0;
+                total_metal = 0;
+                memset(current_user_wallet_hex, 0, sizeof(current_user_wallet_hex));
+
+                // Putuskan paksa koneksi Bluetooth agar warga tahu waktunya habis
+                if (conn_handle != BLE_HS_CONN_HANDLE_NONE)
+                {
+                    ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+                }
+            }
+        }
+
+        int current_state = gpio_get_level(BUTTON_GPIO);
         if (last_state == 1 && current_state == 0)
         {
             // CEK: Apakah ada HP yang sedang konek?
@@ -339,7 +421,7 @@ void button_task(void *arg)
                 if (notify_state)
                 {
                     char rs_hex[130];
-                    bool is_sign_success = generate_signature(total_plastic, total_metal, current_nonce, ESP32_PRIVATE_KEY, ESP32_PUBLIC_ADDRESS, rs_hex);
+                    bool is_sign_success = generate_signature(total_plastic, total_metal, current_nonce, ESP32_PRIVATE_KEY, ESP32_PUBLIC_ADDRESS, current_user_wallet_hex, rs_hex);
 
                     if (is_sign_success)
                     {

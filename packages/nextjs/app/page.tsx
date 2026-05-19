@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { hardhat } from "viem/chains";
 import { useAccount, useReadContract, useReadContracts } from "wagmi";
 import { BlockieAvatar, FaucetButton, RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useTargetNetwork } from "~~/hooks/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { useBleStore } from "~~/services/store/useBLEstore";
+import { useLocalStorage } from "usehooks-ts";
+import LandingPage from "~~/components/LandingPage";
 
 // [UPDATE] ABI: Tambahkan fungsi isMember agar bisa dibaca massal
 const communityAbi = [
@@ -23,12 +25,28 @@ const communityAbi = [
 export default function Home() {
   const { targetNetwork } = useTargetNetwork();
   const isLocalNetwork = targetNetwork.id === hardhat.id;
-  const { address: userAddress } = useAccount();
+  const { address: userAddress, isConnected } = useAccount();
 
   const [activeCommunity, setActiveCommunity] = useState<any>(null);
   const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({});
-
   const { status, latestPayload, clearPayload } = useBleStore();
+
+  // [LOGIKA PENJAGA PINTU (ONBOARDING GATEWAY)]
+  const [walletMode, setWalletMode] = useLocalStorage<"real" | "burner" | null>("rvm_wallet_mode", null);
+  const [showOnboarding, setShowOnboarding] = useState(true);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (isConnected && walletMode === "real") {
+      setShowOnboarding(false);
+    }
+  }, [isConnected, walletMode]);
+
+
 
   // 1. Fetch Daftar Komunitas dari Factory
   const { data: dynamicCommunities, isLoading } = useScaffoldReadContract({
@@ -56,12 +74,13 @@ export default function Home() {
   });
 
   // 3. [UPDATE] Filter Komunitas yang BISA DIPILIH (Open ATAU user terdaftar di whitelist)
-  const allowedCommunities =
-    dynamicCommunities?.filter((comm: any, idx: number) => {
+  const allowedCommunities = useMemo(() => {
+    return dynamicCommunities?.filter((comm: any, idx: number) => {
       const isOpen = openStatuses?.[idx]?.result !== false; // Default true jika loading
       const isUserMember = memberStatuses?.[idx]?.result === true;
       return isOpen || isUserMember;
     }) || [];
+  }, [dynamicCommunities, openStatuses, memberStatuses]);
 
   // Set Default Dropdown ke Komunitas Pertama yang Diizinkan
   useEffect(() => {
@@ -103,6 +122,12 @@ export default function Home() {
     if (status.includes("Mencari")) return "bg-orange-500/20 text-orange-400 border-orange-500/30";
     return "bg-red-500/20 text-red-400 border-red-500/30";
   };
+
+  if (!mounted) return null;
+
+  if (showOnboarding && walletMode === null && !isConnected) {
+    return <LandingPage onBypass={() => setShowOnboarding(false)} />;
+  }
 
   return (
     <div className="flex flex-col items-center justify-start p-4 min-h-screen bg-base-200 pb-32 pt-8 font-sans">
