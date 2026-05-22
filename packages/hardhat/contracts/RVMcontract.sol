@@ -1,45 +1,56 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"; // <--- TAMBAHAN UNTUK MAINNET
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol"; // <--- TAMBAHAN UNTUK MAINNET
-import "@openzeppelin/contracts/utils/Pausable.sol"; // <--- TAMBAHAN UNTUK MAINNET
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
+contract CommunityRVM is
+    Initializable,
+    ERC20Upgradeable,
+    OwnableUpgradeable,
+    ReentrancyGuardUpgradeable,
+    PausableUpgradeable,
+    UUPSUpgradeable
+{
     using ECDSA for bytes32;
-    using SafeERC20 for IERC20; // Mengaktifkan transfer aman
+    using SafeERC20 for IERC20;
 
     uint256 public rewardRatePlastic;
     uint256 public rewardRateMetal;
-    bool public isOpenCommunity;
-    mapping(address => bool) public isMember;
-
     uint256 public lifetimePlastic;
     uint256 public lifetimeMetal;
 
     IERC20 public marketToken;
+    bool public isOpenCommunity;
 
-    // [TAMBAHAN BARU] Batas maksimal item (plastik+metal) harian per mesin untuk menjaga Cost-to-Attack Ratio
+    mapping(address => bool) public isMember;
     uint256 public dailyCapacityLimit;
 
     mapping(address => mapping(uint256 => bool)) public usedNonces;
     mapping(address => bool) public whitelistedDevices;
     address[] public registeredDevices;
 
-    // [TAMBAHAN BARU] Mapping: Alamat Mesin -> Hari Ke-Berapa (timestamp / 1 days) -> Total item yang sudah diklaim
     mapping(address => mapping(uint256 => uint256)) public dailyDeviceClaims;
 
-    event DeviceWhitelisted(address device, bool status);
+    event DeviceWhitelisted(address indexed device, bool status);
     event RewardRatesUpdated(uint256 newPlasticRate, uint256 newMetalRate);
     event RewardsClaimed(address indexed user, uint256 amount);
-    // [TAMBAHAN BARU] Event khusus jika kapasitas harian diubah
     event DailyCapacityUpdated(uint256 newCapacityLimit);
 
-    constructor(
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers(); // Mengunci konstruktor mentah agar tidak bisa disabotase
+    }
+
+    function initialize(
         string memory name,
         string memory symbol,
         address initialOwner,
@@ -47,12 +58,16 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         uint256 _rateMetal,
         bool _isOpenCommunity,
         address _marketTokenAddress
-    ) ERC20(name, symbol) Ownable(initialOwner) {
+    ) public initializer {
+        __ERC20_init(name, symbol);
+        __Ownable_init(initialOwner);
+        __ReentrancyGuard_init();
+        __Pausable_init();
+        __UUPSUpgradeable_init();
+
         rewardRatePlastic = _ratePlastic;
         rewardRateMetal = _rateMetal;
         isOpenCommunity = _isOpenCommunity;
-
-        // [TAMBAHAN BARU] Inisialisasi kapasitas harian default (Misal: 500 item per hari)
         dailyCapacityLimit = 500;
 
         if (_marketTokenAddress != address(0)) {
@@ -60,22 +75,22 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         }
     }
 
-    // --- PANEL ADMIN (Bisa di-Pause saat keadaan darurat) ---
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    // --- PANEL ADMIN ---
     function pause() external onlyOwner {
         _pause();
     }
-
     function unpause() external onlyOwner {
         _unpause();
     }
 
     function setWhitelistedDevice(address device, bool status) external onlyOwner {
-        // Jika sebelumnya belum terdaftar dan sekarang didaftarkan (true)
         if (status == true && whitelistedDevices[device] == false) {
             registeredDevices.push(device);
         }
-
         whitelistedDevices[device] = status;
+        emit DeviceWhitelisted(device, status);
     }
 
     function registerMember(address _user, bool _status) external onlyOwner {
@@ -92,7 +107,6 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         emit RewardRatesUpdated(_ratePlastic, _rateMetal);
     }
 
-    // [TAMBAHAN BARU] Fungsi Admin untuk mengubah batas maksimal harian (Jika mesin fisik di-upgrade ukurannya)
     function updateDailyCapacityLimit(uint256 _newLimit) external onlyOwner {
         require(_newLimit > 0, "RVM: Kapasitas harian tidak boleh nol!");
         dailyCapacityLimit = _newLimit;
@@ -101,12 +115,10 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
 
     function emergencyWithdrawToken(uint256 amount) external onlyOwner {
         require(address(marketToken) != address(0), "Bukan mode market token");
-        marketToken.safeTransfer(owner(), amount); // Gunakan safeTransfer
+        marketToken.safeTransfer(owner(), amount);
     }
 
-    // ------------------------------------------------------------------------
-    // 1. FUNGSI INTERNAL (Logic Utama - Validasi, Limit Harian, & Minting)
-    // ------------------------------------------------------------------------
+    // --- LOGIKA UTAMA ---
     function _processClaim(
         uint256 totalPlastic,
         uint256 totalMetal,
@@ -118,11 +130,10 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         require(!usedNonces[msg.sender][nonce], "RVM: Nonce sudah digunakan");
         require(isOpenCommunity || isMember[msg.sender], "RVM: Anda bukan anggota komunitas privat ini!");
 
-        bytes32 messageHash = sha256(abi.encodePacked(totalPlastic, totalMetal, nonce, deviceAddress,msg.sender));
+        bytes32 messageHash = sha256(abi.encodePacked(totalPlastic, totalMetal, nonce, deviceAddress, msg.sender));
         address signer = ECDSA.recover(messageHash, signature);
         require(signer == deviceAddress, "RVM: Manipulasi data terdeteksi (Signature tidak valid)");
 
-        // ON-CHAIN RATE LIMITING (Membatasi V_asset harian per perangkat)
         uint256 today = block.timestamp / 1 days;
         uint256 totalItems = totalPlastic + totalMetal;
         require(
@@ -130,7 +141,6 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
             "RVM: Melebihi kapasitas harian tong sampah fisik!"
         );
 
-        // Update buku besar harian dan kunci Nonce
         dailyDeviceClaims[deviceAddress][today] += totalItems;
         usedNonces[msg.sender][nonce] = true;
 
@@ -149,9 +159,6 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         emit RewardsClaimed(msg.sender, totalReward);
     }
 
-    // ------------------------------------------------------------------------
-    // 2. FUNGSI EKSTERNAL (Menerima Array dari HP untuk 1x Bayar Gas Fee)
-    // ------------------------------------------------------------------------
     function claimMultiple(
         uint256[] calldata totalPlastics,
         uint256[] calldata totalMetals,
@@ -160,8 +167,6 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
         bytes[] calldata signatures
     ) external nonReentrant whenNotPaused {
         uint256 length = totalPlastics.length;
-
-        // [PERBAIKAN] Pastikan SEMUA array memiliki panjang yang persis sama
         require(length > 0, "RVM: Tidak ada data untuk diklaim");
         require(length <= 50, "RVM: Maksimal klaim 50 struk per transaksi!");
         require(
@@ -169,13 +174,16 @@ contract CommunityRVM is ERC20, Ownable, ReentrancyGuard, Pausable {
             "RVM: Data array tidak sinkron!"
         );
 
-        // Melakukan looping untuk mengeksekusi semua struk yang dikirim dari HP
-        for (uint256 i = 0; i < length; i++) {
+        for (uint256 i = 0; i < length; ) {
             _processClaim(totalPlastics[i], totalMetals[i], nonces[i], deviceAddress, signatures[i]);
+            unchecked {
+                ++i;
+            }
         }
     }
 }
 
+// FACTORY UNTUK PROXY CLONE UNTUK TIAP KOMUNITAS
 contract RVMFactory {
     struct CommunityInfo {
         address contractAddress;
@@ -185,20 +193,37 @@ contract RVMFactory {
     }
 
     CommunityInfo[] public allCommunityDetails;
+    address public immutable implementationAddress;
+
     event CommunityCreated(address indexed communityAddress, address indexed owner, bool isOpen);
 
+    constructor(address _implementationAddress) {
+        implementationAddress = _implementationAddress;
+    }
+
     function createCommunity(
-        string memory name,
-        string memory symbol,
+        string calldata name,
+        string calldata symbol,
         uint256 ratePlastic,
         uint256 rateMetal,
         bool isOpenCommunity,
         address marketTokenAddress
     ) external returns (address) {
-        CommunityRVM newCommunity = new CommunityRVM(
+        address clone;
+        bytes20 implementationBytes = bytes20(implementationAddress);
+
+        assembly {
+            let clone := mload(0x40)
+            mstore(clone, 0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000)
+            mstore(add(clone, 0x14), implementationBytes)
+            mstore(add(clone, 0x28), 0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000)
+            clone := create(0, clone, 0x37)
+        }
+
+        CommunityRVM(clone).initialize(
             name,
             symbol,
-            msg.sender, // Pembuat otomatis jadi owner
+            msg.sender,
             ratePlastic,
             rateMetal,
             isOpenCommunity,
@@ -206,11 +231,11 @@ contract RVMFactory {
         );
 
         allCommunityDetails.push(
-            CommunityInfo({ contractAddress: address(newCommunity), name: name, symbol: symbol, owner: msg.sender })
+            CommunityInfo({ contractAddress: clone, name: name, symbol: symbol, owner: msg.sender })
         );
 
-        emit CommunityCreated(address(newCommunity), msg.sender, isOpenCommunity);
-        return address(newCommunity);
+        emit CommunityCreated(clone, msg.sender, isOpenCommunity);
+        return clone;
     }
 
     function getAllCommunityDetails() external view returns (CommunityInfo[] memory) {
