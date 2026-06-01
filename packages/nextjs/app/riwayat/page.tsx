@@ -33,7 +33,6 @@ export default function RiwayatPage() {
     if (saved) setReceipts(JSON.parse(saved));
   }, []);
 
-  /* ── signature recovery (unchanged) ─────────────────────────────────── */
   const findVAndConstructSignature = async (
     rAndSHex: string,
     plastic: number,
@@ -69,7 +68,6 @@ export default function RiwayatPage() {
     return `${normalizedRAndS}1c` as `0x${string}`;
   };
 
-  /* ── claim batch (unchanged) ─────────────────────────────────────────── */
   const handleClaimBatch = async (contractAddress: string, groupReceipts: any[]) => {
     if (!userAddress) {
       alert("Harap hubungkan dompet terlebih dahulu!");
@@ -125,7 +123,6 @@ export default function RiwayatPage() {
     }
   };
 
-  /* ── derived state (unchanged) ───────────────────────────────────────── */
   const filteredReceipts = receipts.filter(r => r.status === activeTab);
 
   const groupedPendingReceipts = filteredReceipts.reduce(
@@ -143,17 +140,18 @@ export default function RiwayatPage() {
   const pendingCount = receipts.filter(r => r.status === "pending").length;
   const claimedCount = receipts.filter(r => r.status === "claimed").length;
 
-  /* ── helpers ─────────────────────────────────────────────────────────── */
   const tokenHue = (symbol: string) => (symbol ? symbol.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360 : 160);
 
-  /* ── render ──────────────────────────────────────────────────────────── */
   return (
-    <div className="flex flex-col items-center justify-start p-4 min-h-screen bg-base-200 pb-32 pt-8 font-sans">
-      <main className="max-w-md w-full bg-white relative shadow-2xl rounded-[2rem] overflow-hidden border border-gray-200 min-h-[80vh]">
-        {/* ── Header (dark card, same system style) ────────────────────── */}
-        <section
-          className="relative pt-10 pb-6 px-6 rounded-b-3xl shadow-md overflow-hidden"
-          style={{ background: "linear-gradient(135deg, #0f172a 0%, #134e4a 60%, #065f46 100%)" }}
+    <div className="rvm-root min-h-screen pb-32 pt-6 px-4" style={{ background: "#F2F4F7" }}>
+      <div className="max-w-md mx-auto space-y-3">
+        {/* ── Card 1: Hero header ──────────────────────────────────────── */}
+        <div
+          className="relative rounded-3xl overflow-hidden px-5 pt-8 pb-6 anim-slide-up"
+          style={{
+            background: "linear-gradient(135deg, #0f172a 0%, #134e4a 60%, #065f46 100%)",
+            boxShadow: "0 20px 60px -12px rgba(6,95,70,0.35)",
+          }}
         >
           {/* dot grid */}
           <div
@@ -165,12 +163,12 @@ export default function RiwayatPage() {
           />
           {/* glow */}
           <div
-            className="absolute -top-12 -right-12 w-44 h-44 rounded-full opacity-[0.12] pointer-events-none"
+            className="absolute -top-10 -right-10 w-44 h-44 rounded-full opacity-[0.12] pointer-events-none"
             style={{ background: "radial-gradient(circle,#34d399,transparent 70%)" }}
           />
 
           {/* top row */}
-          <div className="relative z-10 flex items-center justify-between mb-6">
+          <div className="relative z-10 flex items-center justify-between mb-5">
             <Link
               href="/"
               className="w-9 h-9 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
@@ -180,66 +178,82 @@ export default function RiwayatPage() {
               </svg>
             </Link>
             <div className="text-center">
-              <p className="text-[10px] text-emerald-400 font-mono tracking-widest uppercase">Transaksi</p>
+              <p className="rvm-mono text-emerald-400 text-[10px] tracking-widest uppercase">Transaksi</p>
               <h1 className="text-white text-base font-bold tracking-tight">Riwayat Setoran</h1>
             </div>
             <div className="w-9" />
           </div>
 
-          {/* summary stats */}
+          {/* stats row */}
           <div className="relative z-10 flex gap-3">
             <div className="flex-1 bg-white/10 border border-white/10 rounded-2xl px-4 py-3">
-              <p className="font-mono text-white/40 text-[10px] tracking-widest uppercase mb-1">Menunggu</p>
+              <p className="rvm-mono text-white/40 text-[10px] tracking-widest uppercase mb-1">Menunggu</p>
               <p className="text-white text-2xl font-bold leading-none">{pendingCount}</p>
               <p className="text-white/50 text-[11px] mt-0.5">struk</p>
             </div>
             <div className="flex-1 bg-white/10 border border-white/10 rounded-2xl px-4 py-3">
-              <p className="font-mono text-white/40 text-[10px] tracking-widest uppercase mb-1">Selesai</p>
+              <p className="rvm-mono text-white/40 text-[10px] tracking-widest uppercase mb-1">Selesai</p>
               <p className="text-emerald-400 text-2xl font-bold leading-none">{claimedCount}</p>
               <p className="text-white/50 text-[11px] mt-0.5">diklaim</p>
             </div>
           </div>
-        </section>
+        </div>
 
-        {/* ── Tabs (DaisyUI tabs-boxed) ─────────────────────────────────── */}
-        <div className="px-5 pt-4 pb-2">
-          <div role="tablist" className="tabs tabs-boxed bg-base-100 p-1">
+        {/* ── Card 2: Tab switcher ─────────────────────────────────────── */}
+        <div className="bg-white rounded-3xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] p-2 flex gap-1">
+          {(["pending", "claimed"] as const).map(tab => (
             <button
-              role="tab"
-              className={`tab flex-1 font-semibold text-sm transition-all ${activeTab === "pending" ? "tab-active !bg-neutral !text-neutral-content rounded-xl" : "text-base-content/40"}`}
-              onClick={() => setActiveTab("pending")}
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl text-sm font-semibold transition-all"
+              style={
+                activeTab === tab
+                  ? {
+                      background: tab === "pending" ? "#111827" : "#059669",
+                      color: "#ffffff",
+                      boxShadow: tab === "pending" ? "0 2px 8px rgba(17,24,39,0.25)" : "0 2px 8px rgba(5,150,105,0.35)",
+                    }
+                  : {
+                      background: "transparent",
+                      color: "#9ca3af",
+                    }
+              }
             >
-              Menunggu
-              {pendingCount > 0 && (
+              {tab === "pending" ? "Menunggu" : "Selesai"}
+              {tab === "pending" && pendingCount > 0 && (
                 <span
-                  className={`ml-1.5 badge badge-sm font-mono ${activeTab === "pending" ? "badge-ghost bg-white/20 text-white border-0" : "badge-neutral"}`}
+                  className="rvm-mono text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                  style={
+                    activeTab === "pending"
+                      ? { background: "rgba(255,255,255,0.2)", color: "#fff" }
+                      : { background: "#f3f4f6", color: "#6b7280" }
+                  }
                 >
                   {pendingCount}
                 </span>
               )}
             </button>
-            <button
-              role="tab"
-              className={`tab flex-1 font-semibold text-sm transition-all ${activeTab === "claimed" ? "tab-active !bg-success !text-success-content rounded-xl" : "text-base-content/40"}`}
-              onClick={() => setActiveTab("claimed")}
-            >
-              Selesai
-            </button>
-          </div>
+          ))}
         </div>
 
-        {/* ── Content ───────────────────────────────────────────────────── */}
-        <section className="p-5 bg-base-200 min-h-[50vh]">
+        {/* ── Card 3: Content ──────────────────────────────────────────── */}
+        <div
+          className="bg-white rounded-3xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden"
+          style={{ minHeight: 320 }}
+        >
           {filteredReceipts.length === 0 ? (
-            /* Empty state */
-            <div className="flex flex-col items-center justify-center pt-16 text-center">
-              <div className="w-16 h-16 bg-base-100 rounded-2xl flex items-center justify-center mb-4 border border-base-300">
+            <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+                style={{ background: "#F2F4F7", border: "1px solid #e5e7eb" }}
+              >
                 <svg
-                  className="w-7 h-7 text-base-content/20"
+                  className="w-7 h-7"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
                   strokeWidth={1.5}
+                  style={{ color: "#d1d5db" }}
                 >
                   <path
                     strokeLinecap="round"
@@ -248,14 +262,16 @@ export default function RiwayatPage() {
                   />
                 </svg>
               </div>
-              <p className="font-semibold text-sm text-base-content/50">Tidak ada struk di sini</p>
-              <p className="font-mono text-[11px] text-base-content/30 mt-1">
+              <p className="font-semibold text-sm" style={{ color: "#6b7280" }}>
+                Tidak ada struk di sini
+              </p>
+              <p className="rvm-mono text-[11px] mt-1" style={{ color: "#d1d5db" }}>
                 {activeTab === "pending" ? "Scan mesin RVM untuk mulai setor" : "Struk yang diklaim muncul di sini"}
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* === PENDING: grouped by community === */}
+            <div className="p-4 space-y-3">
+              {/* === PENDING === */}
               {activeTab === "pending"
                 ? Object.values(groupedPendingReceipts).map((group: any, idx: number) => {
                     const totalPlastik = group.items.reduce((s: number, i: any) => s + i.payload.plastic, 0);
@@ -264,54 +280,89 @@ export default function RiwayatPage() {
                     const hue = tokenHue(group.community.symbol ?? "");
 
                     return (
-                      <div key={idx} className="card bg-base-100 shadow-sm border border-base-200">
-                        <div className="card-body p-5 gap-4">
-                          {/* Community identity */}
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="w-10 h-10 rounded-2xl flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-                              style={{
-                                background: `hsl(${hue},55%,40%)`,
-                                boxShadow: `0 2px 8px hsla(${hue},55%,40%,0.3)`,
-                              }}
+                      <div
+                        key={idx}
+                        className="rounded-2xl overflow-hidden"
+                        style={{ border: "1px solid #f3f4f6", background: "#fafafa" }}
+                      >
+                        {/* community row */}
+                        <div
+                          className="flex items-center gap-3 px-4 pt-4 pb-3"
+                          style={{ borderBottom: "1px solid #f3f4f6" }}
+                        >
+                          <div
+                            className="w-10 h-10 rounded-2xl flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                            style={{
+                              background: `hsl(${hue},55%,40%)`,
+                              boxShadow: `0 2px 8px hsla(${hue},55%,40%,0.3)`,
+                            }}
+                          >
+                            {group.community.symbol?.charAt(0).toUpperCase() ?? "R"}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-sm truncate" style={{ color: "#111827" }}>
+                              {group.community.name}
+                            </p>
+                            <p className="rvm-mono text-[10px] truncate" style={{ color: "#9ca3af" }}>
+                              {group.community.contractAddress.slice(0, 10)}...
+                              {group.community.contractAddress.slice(-6)}
+                            </p>
+                          </div>
+                          <span
+                            className="rvm-mono text-[10px] font-bold px-2 py-1 rounded-lg flex-shrink-0"
+                            style={{ background: "#f3f4f6", color: "#6b7280" }}
+                          >
+                            {group.items.length} struk
+                          </span>
+                        </div>
+
+                        {/* stat boxes */}
+                        <div className="grid grid-cols-2 px-4 py-3 gap-3">
+                          <div className="rounded-xl px-3 py-2.5" style={{ background: "#eff6ff" }}>
+                            <p
+                              className="rvm-mono text-[10px] tracking-widest uppercase mb-1"
+                              style={{ color: "#93c5fd" }}
                             >
-                              {group.community.symbol?.charAt(0).toUpperCase() ?? "R"}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-bold text-sm text-base-content truncate">{group.community.name}</p>
-                              <p className="font-mono text-[10px] text-base-content/40 truncate">
-                                {group.community.contractAddress.slice(0, 10)}...
-                                {group.community.contractAddress.slice(-6)}
-                              </p>
-                            </div>
-                            <div className="badge badge-outline font-mono text-[10px]">{group.items.length} struk</div>
+                              Plastik
+                            </p>
+                            <p className="text-2xl font-bold leading-none" style={{ color: "#1d4ed8" }}>
+                              {totalPlastik}
+                            </p>
+                            <p className="text-[11px] mt-0.5" style={{ color: "#93c5fd" }}>
+                              botol
+                            </p>
                           </div>
-
-                          <div className="divider my-0" />
-
-                          {/* Stats (DaisyUI stats) */}
-                          <div className="stats stats-horizontal w-full bg-base-200 rounded-2xl">
-                            <div className="stat place-items-center py-3">
-                              <div className="stat-title text-[10px] font-mono tracking-widest">PLASTIK</div>
-                              <div className="stat-value text-2xl text-info">{totalPlastik}</div>
-                              <div className="stat-desc text-[10px]">botol</div>
-                            </div>
-                            <div className="stat place-items-center py-3">
-                              <div className="stat-title text-[10px] font-mono tracking-widest">METAL</div>
-                              <div className="stat-value text-2xl">{totalMetal}</div>
-                              <div className="stat-desc text-[10px]">kaleng</div>
-                            </div>
+                          <div className="rounded-xl px-3 py-2.5" style={{ background: "#f9fafb" }}>
+                            <p
+                              className="rvm-mono text-[10px] tracking-widest uppercase mb-1"
+                              style={{ color: "#9ca3af" }}
+                            >
+                              Metal
+                            </p>
+                            <p className="text-2xl font-bold leading-none" style={{ color: "#374151" }}>
+                              {totalMetal}
+                            </p>
+                            <p className="text-[11px] mt-0.5" style={{ color: "#9ca3af" }}>
+                              kaleng
+                            </p>
                           </div>
+                        </div>
 
-                          {/* Claim button */}
+                        {/* claim button */}
+                        <div className="px-4 pb-4">
                           <button
-                            className="btn btn-success btn-block rounded-2xl font-bold text-sm"
                             onClick={() => handleClaimBatch(group.community.contractAddress, group.items)}
                             disabled={isClaiming}
+                            className="w-full h-12 rounded-2xl text-white text-sm font-bold tracking-wide transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+                            style={{
+                              background: isClaiming ? "#9ca3af" : "linear-gradient(135deg,#059669,#047857)",
+                              boxShadow: isClaiming ? "none" : "0 6px 20px -4px rgba(5,150,105,0.4)",
+                            }}
                           >
                             {isClaiming ? (
                               <>
-                                <span className="loading loading-spinner loading-xs" /> Memproses...
+                                <span className="loading loading-spinner loading-xs" />
+                                Memproses...
                               </>
                             ) : (
                               <>Klaim {group.items.length} Struk — 1× Gas Fee</>
@@ -321,36 +372,46 @@ export default function RiwayatPage() {
                       </div>
                     );
                   })
-                : /* === CLAIMED: simple list === */
+                : /* === CLAIMED === */
                   filteredReceipts.map(receipt => {
                     const hue = tokenHue(receipt.community.symbol ?? "");
                     return (
-                      <div key={receipt.id} className="card bg-base-100 border border-base-200 opacity-80">
-                        <div className="card-body p-4 flex-row items-center gap-4">
-                          <div
-                            className="w-10 h-10 rounded-2xl flex-shrink-0 flex items-center justify-center text-white text-sm font-bold"
-                            style={{ background: `hsl(${hue},45%,45%)` }}
-                          >
-                            {receipt.community.symbol?.charAt(0).toUpperCase() ?? "R"}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-bold text-sm text-base-content truncate">{receipt.community.name}</p>
-                            <p className="font-mono text-[10px] text-base-content/50 mt-0.5">
-                              {receipt.payload.plastic} plastik · {receipt.payload.metal} metal
-                            </p>
-                            <p className="font-mono text-[10px] text-base-content/30 mt-0.5">{receipt.date}</p>
-                          </div>
-                          <div className="badge badge-success badge-outline font-mono text-[10px] flex-shrink-0">
-                            Sukses
-                          </div>
+                      <div
+                        key={receipt.id}
+                        className="rounded-2xl flex items-center gap-4 p-4"
+                        style={{ background: "#fafafa", border: "1px solid #f3f4f6", opacity: 0.85 }}
+                      >
+                        <div
+                          className="w-10 h-10 rounded-2xl flex-shrink-0 flex items-center justify-center text-white text-sm font-bold"
+                          style={{ background: `hsl(${hue},45%,45%)` }}
+                        >
+                          {receipt.community.symbol?.charAt(0).toUpperCase() ?? "R"}
                         </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-sm truncate" style={{ color: "#111827" }}>
+                            {receipt.community.name}
+                          </p>
+                          <p className="rvm-mono text-[10px] mt-0.5" style={{ color: "#9ca3af" }}>
+                            {receipt.payload.plastic} plastik · {receipt.payload.metal} metal
+                          </p>
+                          <p className="rvm-mono text-[10px] mt-0.5" style={{ color: "#d1d5db" }}>
+                            {receipt.date}
+                          </p>
+                        </div>
+                        <span
+                          className="flex-shrink-0 inline-flex items-center gap-1 rvm-mono text-[10px] font-semibold px-2 py-1 rounded-full"
+                          style={{ background: "#ecfdf5", color: "#059669", border: "1px solid #a7f3d0" }}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#059669" }} />
+                          Sukses
+                        </span>
                       </div>
                     );
                   })}
             </div>
           )}
-        </section>
-      </main>
+        </div>
+      </div>
     </div>
   );
 }

@@ -12,6 +12,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
+// INTERFACE UNTUK MENGECEK WHITELIST GLOBAL KE PABRIK
+interface IRVMFactory {
+    function isSystemWhitelistedDevice(address device) external view returns (bool);
+}
+
 contract CommunityRVM is
     Initializable,
     ERC20Upgradeable,
@@ -35,8 +40,11 @@ contract CommunityRVM is
     uint256 public dailyCapacityLimit;
 
     mapping(address => mapping(uint256 => bool)) public usedNonces;
-    mapping(address => bool) public whitelistedDevices;
-    address[] public registeredDevices;
+    // Alamat pabrik induk penyimpan whitelist global
+    address public factoryAddress;
+    // Alamat perangkat yang dipasang khusus untuk komunitas ini
+    address[] public communityDevices;
+    mapping(address => bool) public isAssignedToCommunity;
 
     mapping(address => mapping(uint256 => uint256)) public dailyDeviceClaims;
 
@@ -57,7 +65,8 @@ contract CommunityRVM is
         uint256 _ratePlastic,
         uint256 _rateMetal,
         bool _isOpenCommunity,
-        address _marketTokenAddress
+        address _marketTokenAddress,
+        address _factoryAddress
     ) public initializer {
         __ERC20_init(name, symbol);
         __Ownable_init(initialOwner);
@@ -69,6 +78,7 @@ contract CommunityRVM is
         rewardRateMetal = _rateMetal;
         isOpenCommunity = _isOpenCommunity;
         dailyCapacityLimit = 500;
+        factoryAddress = _factoryAddress;
 
         if (_marketTokenAddress != address(0)) {
             marketToken = IERC20(_marketTokenAddress);
@@ -85,20 +95,27 @@ contract CommunityRVM is
         _unpause();
     }
 
-    function setWhitelistedDevice(address device, bool status) external onlyOwner {
-        if (status == true && whitelistedDevices[device] == false) {
-            registeredDevices.push(device);
+    // Admin Komunitas menautkan mesin yang sudah lolos uji regulasi sistem global
+    function assignDeviceToCommunity(address device) external onlyOwner {
+        // Cek silang ke Pabrik Induk: Apakah perangkat ini sah di jaringan RVM?
+        require(
+            IRVMFactory(factoryAddress).isSystemWhitelistedDevice(device),
+            "RVM: Perangkat tdk terdaftar di sistem pusat!"
+        );
+
+        if (!isAssignedToCommunity[device]) {
+            isAssignedToCommunity[device] = true;
+            communityDevices.push(device);
+            emit DeviceAssigned(device);
         }
-        whitelistedDevices[device] = status;
-        emit DeviceWhitelisted(device, status);
     }
 
     function registerMember(address _user, bool _status) external onlyOwner {
         isMember[_user] = _status;
     }
 
-    function getRegisteredDevices() external view returns (address[] memory) {
-        return registeredDevices;
+    function getCommunityDevices() external view returns (address[] memory) {
+        return communityDevices;
     }
 
     function updateRewardRates(uint256 _ratePlastic, uint256 _rateMetal) external onlyOwner {
@@ -126,7 +143,7 @@ contract CommunityRVM is
         address deviceAddress,
         bytes memory signature
     ) internal {
-        require(whitelistedDevices[deviceAddress], "RVM: Perangkat tidak terotorisasi");
+        require(isAssignedToCommunity[deviceAddress], "RVM: Perangkat tdk ditautkan ke komunitas ini");
         require(!usedNonces[msg.sender][nonce], "RVM: Nonce sudah digunakan");
         require(isOpenCommunity || isMember[msg.sender], "RVM: Anda bukan anggota komunitas privat ini!");
 
@@ -155,7 +172,6 @@ contract CommunityRVM is
 
         lifetimePlastic += totalPlastic;
         lifetimeMetal += totalMetal;
-
         emit RewardsClaimed(msg.sender, totalReward);
     }
 
@@ -192,13 +208,38 @@ contract RVMFactory {
         address owner;
     }
 
+    address public immutable superAdmin;
     CommunityInfo[] public allCommunityDetails;
     address public immutable implementationAddress;
 
+    // Database Whitelist Global Jaringan RVM Pusat
+    mapping(address => bool) public isSystemWhitelistedDevice;
+    address[] public allSystemDevices;
+
+    event SystemDeviceRegistered(address indexed device, bool status);
     event CommunityCreated(address indexed communityAddress, address indexed owner, bool isOpen);
+
+    modifier onlySuperAdmin() {
+        require(msg.sender == superAdmin, "RVM Factory: Hanya Super Admin Protokol Pusat!");
+        _;
+    }
 
     constructor(address _implementationAddress) {
         implementationAddress = _implementationAddress;
+        superAdmin = msg.sender;
+    }
+
+    // Fungsi Pengesahan Hardware Pusat (Hanya bisa dipicu oleh Super Admin/Anda)
+    function registerHardwareToSystem(address device, bool status) external onlySuperAdmin {
+        if (status == true && !isSystemWhitelistedDevice[device]) {
+            allSystemDevices.push(device);
+        }
+        isSystemWhitelistedDevice[device] = status;
+        emit SystemDeviceRegistered(device, status);
+    }
+
+    function getSystemDevices() external view returns (address[] memory) {
+        return allSystemDevices;
     }
 
     function createCommunity(
@@ -227,7 +268,8 @@ contract RVMFactory {
             ratePlastic,
             rateMetal,
             isOpenCommunity,
-            marketTokenAddress
+            marketTokenAddress,
+            address(this)
         );
 
         allCommunityDetails.push(
