@@ -6,20 +6,21 @@ import { hardhat } from "viem/chains";
 import { useAccount, useDisconnect, useReadContract, useReadContracts } from "wagmi";
 import LandingPage from "~~/components/LandingPage";
 import { BlockieAvatar, FaucetButton, RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
+import deployedContracts from "~~/contracts/deployedContracts";
 import { useTargetNetwork } from "~~/hooks/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { useBleStore } from "~~/services/store/useBLEstore";
 
-const communityAbi = [
-  { inputs: [], name: "isOpenCommunity", outputs: [{ type: "bool" }], stateMutability: "view", type: "function" },
-  {
-    inputs: [{ name: "account", type: "address" }],
-    name: "isMember",
-    outputs: [{ type: "bool" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
+// const communityAbi = [
+//   { inputs: [], name: "isOpenCommunity", outputs: [{ type: "bool" }], stateMutability: "view", type: "function" },
+//   {
+//     inputs: [{ name: "account", type: "address" }],
+//     name: "isMember",
+//     outputs: [{ type: "bool" }],
+//     stateMutability: "view",
+//     type: "function",
+//   },
+// ] as const;
 
 // ─── Utility ─────────────────────────────────────────────────────────────────
 function shortenAddress(addr: string) {
@@ -100,8 +101,12 @@ function CommunitySelector({
 export default function Home() {
   const { targetNetwork } = useTargetNetwork();
   const isLocalNetwork = targetNetwork.id === hardhat.id;
-  const { address: userAddress, isConnected } = useAccount();
+  const { address: userAddress, isConnected, chain } = useAccount();
   const { disconnect } = useDisconnect();
+
+  const chainId = chain?.id ?? targetNetwork.id ?? 31337;
+  const contracts = deployedContracts as Record<number, any>;
+  const communityAbi = contracts[chainId]?.CommunityRVM?.abi;
 
   const [activeCommunity, setActiveCommunity] = useState<any>(null);
   const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({});
@@ -140,6 +145,7 @@ export default function Home() {
       abi: communityAbi,
       functionName: "isOpenCommunity",
     })),
+    query: { enabled: !!communityAbi && dynamicCommunities?.length > 0 },
   });
 
   const { data: memberStatuses } = useReadContracts({
@@ -149,6 +155,7 @@ export default function Home() {
       functionName: "isMember",
       args: [(userAddress as `0x${string}`) || "0x0000000000000000000000000000000000000000"],
     })),
+    query: { enabled: !!communityAbi && dynamicCommunities?.length > 0 },
   });
 
   const allowedCommunities = useMemo(() => {

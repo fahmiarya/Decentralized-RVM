@@ -3,14 +3,16 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
+import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
+import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 
 // INTERFACE UNTUK MENGECEK WHITELIST GLOBAL KE PABRIK
 interface IRVMFactory {
@@ -21,9 +23,8 @@ contract CommunityRVM is
     Initializable,
     ERC20Upgradeable,
     OwnableUpgradeable,
-    ReentrancyGuardUpgradeable,
-    PausableUpgradeable,
-    UUPSUpgradeable
+    ReentrancyGuard,
+    PausableUpgradeable
 {
     using ECDSA for bytes32;
     using SafeERC20 for IERC20;
@@ -52,6 +53,7 @@ contract CommunityRVM is
     event RewardRatesUpdated(uint256 newPlasticRate, uint256 newMetalRate);
     event RewardsClaimed(address indexed user, uint256 amount);
     event DailyCapacityUpdated(uint256 newCapacityLimit);
+    event DeviceAssigned(address indexed device);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -70,9 +72,7 @@ contract CommunityRVM is
     ) public initializer {
         __ERC20_init(name, symbol);
         __Ownable_init(initialOwner);
-        __ReentrancyGuard_init();
         __Pausable_init();
-        __UUPSUpgradeable_init();
 
         rewardRatePlastic = _ratePlastic;
         rewardRateMetal = _rateMetal;
@@ -85,7 +85,6 @@ contract CommunityRVM is
         }
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     // --- PANEL ADMIN ---
     function pause() external onlyOwner {
@@ -210,7 +209,7 @@ contract RVMFactory {
 
     address public immutable superAdmin;
     CommunityInfo[] public allCommunityDetails;
-    address public immutable implementationAddress;
+    address public immutable beaconAddress;
 
     // Database Whitelist Global Jaringan RVM Pusat
     mapping(address => bool) public isSystemWhitelistedDevice;
@@ -225,8 +224,9 @@ contract RVMFactory {
     }
 
     constructor(address _implementationAddress) {
-        implementationAddress = _implementationAddress;
         superAdmin = msg.sender;
+        UpgradeableBeacon beacon = new UpgradeableBeacon(_implementationAddress, msg.sender);
+        beaconAddress = address(beacon);
     }
 
     // Fungsi Pengesahan Hardware Pusat (Hanya bisa dipicu oleh Super Admin/Anda)
@@ -250,27 +250,21 @@ contract RVMFactory {
         bool isOpenCommunity,
         address marketTokenAddress
     ) external returns (address) {
-        address clone;
-        bytes20 implementationBytes = bytes20(implementationAddress);
-
-        assembly {
-            let clone := mload(0x40)
-            mstore(clone, 0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000)
-            mstore(add(clone, 0x14), implementationBytes)
-            mstore(add(clone, 0x28), 0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000)
-            clone := create(0, clone, 0x37)
-        }
-
-        CommunityRVM(clone).initialize(
+    
+        bytes memory initData = abi.encodeWithSelector(
+            CommunityRVM.initialize.selector,
             name,
             symbol,
-            msg.sender,
+            msg.sender, // initialOwner komunitas
             ratePlastic,
             rateMetal,
             isOpenCommunity,
             marketTokenAddress,
-            address(this)
+            address(this) // factoryAddress
         );
+
+        BeaconProxy proxy = new BeaconProxy(beaconAddress, initData);
+        address clone = address(proxy);
 
         allCommunityDetails.push(
             CommunityInfo({ contractAddress: clone, name: name, symbol: symbol, owner: msg.sender })

@@ -1,54 +1,55 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount, useReadContract, useReadContracts, useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useReadContract, useReadContracts, useWriteContract } from "wagmi";
+import deployedContracts from "~~/contracts/deployedContracts";
 import { useScaffoldReadContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
 
 // =========================================================================
 // ABI Global untuk Kontrak Komunitas (CommunityRVM)
 // =========================================================================
-const communityAbi = [
-  { inputs: [], name: "lifetimePlastic", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
-  { inputs: [], name: "lifetimeMetal", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
-  { inputs: [], name: "marketToken", outputs: [{ type: "address" }], stateMutability: "view", type: "function" },
-  { inputs: [], name: "isOpenCommunity", outputs: [{ type: "bool" }], stateMutability: "view", type: "function" },
-  { inputs: [], name: "dailyCapacityLimit", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
-  {
-    inputs: [],
-    name: "getCommunityDevices",
-    outputs: [{ type: "address[]" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [{ type: "address" }],
-    name: "assignDeviceToCommunity",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ type: "address" }, { type: "bool" }],
-    name: "registerMember",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ type: "uint256" }],
-    name: "updateDailyCapacityLimit",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ type: "uint256" }, { type: "uint256" }],
-    name: "updateRewardRates",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const;
+// const communityAbi = [
+//   { inputs: [], name: "lifetimePlastic", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
+//   { inputs: [], name: "lifetimeMetal", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
+//   { inputs: [], name: "marketToken", outputs: [{ type: "address" }], stateMutability: "view", type: "function" },
+//   { inputs: [], name: "isOpenCommunity", outputs: [{ type: "bool" }], stateMutability: "view", type: "function" },
+//   { inputs: [], name: "dailyCapacityLimit", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
+//   {
+//     inputs: [],
+//     name: "getCommunityDevices",
+//     outputs: [{ type: "address[]" }],
+//     stateMutability: "view",
+//     type: "function",
+//   },
+//   {
+//     inputs: [{ type: "address" }],
+//     name: "assignDeviceToCommunity",
+//     outputs: [],
+//     stateMutability: "nonpayable",
+//     type: "function",
+//   },
+//   {
+//     inputs: [{ type: "address" }, { type: "bool" }],
+//     name: "registerMember",
+//     outputs: [],
+//     stateMutability: "nonpayable",
+//     type: "function",
+//   },
+//   {
+//     inputs: [{ type: "uint256" }],
+//     name: "updateDailyCapacityLimit",
+//     outputs: [],
+//     stateMutability: "nonpayable",
+//     type: "function",
+//   },
+//   {
+//     inputs: [{ type: "uint256" }, { type: "uint256" }],
+//     name: "updateRewardRates",
+//     outputs: [],
+//     stateMutability: "nonpayable",
+//     type: "function",
+//   },
+// ] as const;
 
 // =========================================================================
 // Helper: warna token dari hash simbol
@@ -62,7 +63,9 @@ function tokenHue(symbol: string): number {
 }
 
 export default function AdminDashboard() {
-  const { address: userAddress } = useAccount();
+  const { address: userAddress, chain } = useAccount();
+
+  const publicClient = usePublicClient();
 
   // State Pendaftaran Komunitas & Operasional Lokal
   const [communityName, setCommunityName] = useState("");
@@ -83,6 +86,10 @@ export default function AdminDashboard() {
 
   // [STATE BARU]: Input Whitelist Perangkat Global ke Sistem Pusat
   const [systemHardwareAddress, setSystemHardwareAddress] = useState("");
+
+  const chainId = chain?.id ?? 31337;
+  const contracts = deployedContracts as Record<number, any>;
+  const communityAbi = contracts[chainId]?.CommunityRVM?.abi;
 
   // =========================================================================
   // HOOKS PABRIK (RVMFactory)
@@ -138,14 +145,19 @@ export default function AdminDashboard() {
   // 1. Whitelist Mesin ke Sistem Pusat (Hanya Super Admin)
   const handleRegisterHardwareToSystem = async (e: React.SyntheticEvent) => {
     e.preventDefault();
-    if (!systemHardwareAddress) return;
+    if (!systemHardwareAddress || !publicClient) return;
     try {
-      await factoryWrite({
+      const txHash = await factoryWrite({
         functionName: "registerHardwareToSystem",
         args: [systemHardwareAddress as `0x${string}`, true],
       });
-      setSystemHardwareAddress("");
-      alert("🚀 Sukses! Perangkat keras resmi diakui di Jaringan Pusat RVM!");
+      if (txHash) {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        if (receipt.status === "success") {
+          setSystemHardwareAddress("");
+          alert("🚀 Sukses! Perangkat keras resmi diakui di Jaringan Pusat RVM!");
+        }
+      }
     } catch (error) {
       console.error(error);
     }
@@ -154,9 +166,9 @@ export default function AdminDashboard() {
   // 2. Mendirikan Komunitas Baru
   const handleCreateCommunity = async (e: React.SyntheticEvent) => {
     e.preventDefault();
-    if (!communityName || (!tokenSymbol && tokenModel === "custom")) return;
+    if (!communityName || !publicClient || (!tokenSymbol && tokenModel === "custom")) return;
     try {
-      await factoryWrite({
+      const txHash = await factoryWrite({
         functionName: "createCommunity",
         args: [
           communityName,
@@ -169,11 +181,19 @@ export default function AdminDashboard() {
             : "0x0000000000000000000000000000000000000000",
         ],
       });
-      setCommunityName("");
-      setTokenSymbol("");
-      setMarketTokenAddress("");
-      setPlasticRate("");
-      setMetalRate("");
+
+      if (txHash) {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+        if (receipt.status === "success") {
+          setCommunityName("");
+          setTokenSymbol("");
+          setMarketTokenAddress("");
+          setPlasticRate("");
+          setMetalRate("");
+          alert("✅ Komunitas Berhasil Dibuat!");
+        }
+      }
     } catch (error) {
       console.error(error);
     }
@@ -182,16 +202,21 @@ export default function AdminDashboard() {
   // 3. Menautkan perangkat sistem ke dalam komunitas lokal
   const handleAssignDeviceToCommunity = async (e: React.SyntheticEvent) => {
     e.preventDefault();
-    if (!manageCommunityAddr || !deviceAddress) return;
+    if (!manageCommunityAddr || !deviceAddress || !publicClient || !communityAbi) return;
     try {
-      await writeCommunityTx({
+      const txHash = await writeCommunityTx({
         address: manageCommunityAddr as `0x${string}`,
-        abi: communityAbi,
+        abi: communityAbi, // Gunakan ABI dinamis
         functionName: "assignDeviceToCommunity",
         args: [deviceAddress as `0x${string}`],
       });
-      setDeviceAddress("");
-      alert("🔗 Perangkat Berhasil Ditautkan ke Komunitas Anda!");
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      if (receipt.status === "success") {
+        setDeviceAddress("");
+        alert("🔗 Perangkat Berhasil Ditautkan ke Komunitas Anda!");
+      }
     } catch (error) {
       console.error(error);
       alert("❌ Gagal! Pastikan perangkat ini sudah disahkan oleh Pusat (Super Admin).");
@@ -201,16 +226,21 @@ export default function AdminDashboard() {
   // 4. Update Limit, Rate, dan Member
   const handleUpdateCapacity = async (e: React.SyntheticEvent) => {
     e.preventDefault();
-    if (!manageCommunityAddr || !newCapacity) return;
+    if (!manageCommunityAddr || !newCapacity || !publicClient || !communityAbi) return;
     try {
-      await writeCommunityTx({
+      const txHash = await writeCommunityTx({
         address: manageCommunityAddr as `0x${string}`,
         abi: communityAbi,
         functionName: "updateDailyCapacityLimit",
         args: [BigInt(newCapacity)],
       });
-      setNewCapacity("");
-      alert("✅ Kapasitas Harian Mesin Berhasil Diperbarui!");
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      if (receipt.status === "success") {
+        setNewCapacity("");
+        alert("✅ Kapasitas Harian Mesin Berhasil Diperbarui!");
+      }
     } catch (error) {
       console.error(error);
     }
@@ -218,17 +248,22 @@ export default function AdminDashboard() {
 
   const handleUpdateRates = async (e: React.SyntheticEvent) => {
     e.preventDefault();
-    if (!manageCommunityAddr || !newPlasticRate || !newMetalRate) return;
+    if (!manageCommunityAddr || !newPlasticRate || !newMetalRate || !publicClient || !communityAbi) return;
     try {
-      await writeCommunityTx({
+      const txHash = await writeCommunityTx({
         address: manageCommunityAddr as `0x${string}`,
         abi: communityAbi,
         functionName: "updateRewardRates",
         args: [BigInt(newPlasticRate), BigInt(newMetalRate)],
       });
-      setNewPlasticRate("");
-      setNewMetalRate("");
-      alert("✅ Tarif Reward Berhasil Diperbarui!");
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      if (receipt.status === "success") {
+        setNewPlasticRate("");
+        setNewMetalRate("");
+        alert("✅ Tarif Reward Berhasil Diperbarui!");
+      }
     } catch (error) {
       console.error(error);
     }
@@ -236,16 +271,21 @@ export default function AdminDashboard() {
 
   const handleRegisterMember = async (e: React.SyntheticEvent) => {
     e.preventDefault();
-    if (!manageCommunityAddr || !memberAddress) return;
+    if (!manageCommunityAddr || !memberAddress || !publicClient || !communityAbi) return;
     try {
-      await writeCommunityTx({
+      const txHash = await writeCommunityTx({
         address: manageCommunityAddr as `0x${string}`,
         abi: communityAbi,
         functionName: "registerMember",
         args: [memberAddress as `0x${string}`, true],
       });
-      setMemberAddress("");
-      alert("✅ Warga berhasil didaftarkan!");
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      if (receipt.status === "success") {
+        setMemberAddress("");
+        alert("✅ Warga berhasil didaftarkan!");
+      }
     } catch (error) {
       console.error(error);
     }
@@ -716,44 +756,64 @@ export default function AdminDashboard() {
 // KOMPONEN ANAK: KARTU STATISTIK KOMUNITAS
 // =========================================================================
 function CommunityCard({ community }: { community: any }) {
-  const { data: plasticCount } = useReadContract({
-    address: community.contractAddress,
-    abi: communityAbi,
-    functionName: "lifetimePlastic",
-  });
-  const { data: metalCount } = useReadContract({
-    address: community.contractAddress,
-    abi: communityAbi,
-    functionName: "lifetimeMetal",
-  });
-  const { data: isOpen } = useReadContract({
-    address: community.contractAddress,
-    abi: communityAbi,
-    functionName: "isOpenCommunity",
-  });
-  const { data: capacityLimit } = useReadContract({
-    address: community.contractAddress,
-    abi: communityAbi,
-    functionName: "dailyCapacityLimit",
+  const { chain } = useAccount();
+  const chainId = chain?.id ?? 31337;
+  const contracts = deployedContracts as Record<number, any>;
+  const communityAbi = contracts[chainId]?.CommunityRVM?.abi;
+
+  const { data: results } = useReadContracts({
+    contracts: [
+      { address: community.contractAddress, abi: communityAbi, functionName: "lifetimePlastic" },
+      { address: community.contractAddress, abi: communityAbi, functionName: "lifetimeMetal" },
+      { address: community.contractAddress, abi: communityAbi, functionName: "isOpenCommunity" },
+      { address: community.contractAddress, abi: communityAbi, functionName: "dailyCapacityLimit" },
+      { address: community.contractAddress, abi: communityAbi, functionName: "getCommunityDevices" },
+      { address: community.contractAddress, abi: communityAbi, functionName: "marketToken" },
+    ],
+    query: { enabled: !!communityAbi }, // Cegah run sebelum ABI siap
   });
 
-  // PERBAIKAN: Menggunakan fungsi baru getCommunityDevices
-  const { data: registeredDevices } = useReadContract({
-    address: community.contractAddress,
-    abi: communityAbi,
-    functionName: "getCommunityDevices",
-  });
+  const [plasticCount, metalCount, isOpen, capacityLimit, registeredDevices, marketTokenAddr] = results || [];
 
-  const { data: marketTokenAddr } = useReadContract({
-    address: community.contractAddress,
-    abi: communityAbi,
-    functionName: "marketToken",
-  });
+  // const { data: plasticCount } = useReadContract({
+  //   address: community.contractAddress,
+  //   abi: communityAbi,
+  //   functionName: "lifetimePlastic",
+  // });
+  // const { data: metalCount } = useReadContract({
+  //   address: community.contractAddress,
+  //   abi: communityAbi,
+  //   functionName: "lifetimeMetal",
+  // });
+  // const { data: isOpen } = useReadContract({
+  //   address: community.contractAddress,
+  //   abi: communityAbi,
+  //   functionName: "isOpenCommunity",
+  // });
+  // const { data: capacityLimit } = useReadContract({
+  //   address: community.contractAddress,
+  //   abi: communityAbi,
+  //   functionName: "dailyCapacityLimit",
+  // });
 
-  const isCustomToken = !marketTokenAddr || marketTokenAddr === "0x0000000000000000000000000000000000000000";
+  // // PERBAIKAN: Menggunakan fungsi baru getCommunityDevices
+  // const { data: registeredDevices } = useReadContract({
+  //   address: community.contractAddress,
+  //   abi: communityAbi,
+  //   functionName: "getCommunityDevices",
+  // });
+
+  // const { data: marketTokenAddr } = useReadContract({
+  //   address: community.contractAddress,
+  //   abi: communityAbi,
+  //   functionName: "marketToken",
+  // });
+
+  const isCustomToken =
+    !marketTokenAddr?.result || marketTokenAddr.result === "0x0000000000000000000000000000000000000000";
 
   const { data: poolBalance } = useReadContract({
-    address: isCustomToken ? undefined : (marketTokenAddr as `0x${string}`),
+    address: isCustomToken ? undefined : (marketTokenAddr?.result as `0x${string}`),
     abi: [
       {
         inputs: [{ type: "address" }],
@@ -762,9 +822,10 @@ function CommunityCard({ community }: { community: any }) {
         stateMutability: "view",
         type: "function",
       },
-    ] as const,
+    ],
     functionName: "balanceOf",
     args: [community.contractAddress],
+    query: { enabled: !isCustomToken },
   });
 
   const totalSampah = (Number(plasticCount || 0) + Number(metalCount || 0)).toLocaleString();
@@ -780,7 +841,7 @@ function CommunityCard({ community }: { community: any }) {
     liquidityLabel = "USDT";
   }
 
-  const devices = (registeredDevices as string[]) || [];
+  const devices = (registeredDevices?.result as string[]) ?? [];
 
   const hue = tokenHue(community.symbol || "");
 

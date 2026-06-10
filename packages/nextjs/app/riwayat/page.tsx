@@ -2,27 +2,30 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/dist/client/link";
-import { useAccount, useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
+import deployedContracts from "~~/contracts/deployedContracts";
 
-const COMMUNITY_ABI = [
-  {
-    inputs: [
-      { internalType: "uint256[]", name: "totalPlastics", type: "uint256[]" },
-      { internalType: "uint256[]", name: "totalMetals", type: "uint256[]" },
-      { internalType: "uint256[]", name: "nonces", type: "uint256[]" },
-      { internalType: "address", name: "deviceAddress", type: "address" },
-      { internalType: "bytes[]", name: "signatures", type: "bytes[]" },
-    ],
-    name: "claimMultiple",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const;
+// const COMMUNITY_ABI = [
+//   {
+//     inputs: [
+//       { internalType: "uint256[]", name: "totalPlastics", type: "uint256[]" },
+//       { internalType: "uint256[]", name: "totalMetals", type: "uint256[]" },
+//       { internalType: "uint256[]", name: "nonces", type: "uint256[]" },
+//       { internalType: "address", name: "deviceAddress", type: "address" },
+//       { internalType: "bytes[]", name: "signatures", type: "bytes[]" },
+//     ],
+//     name: "claimMultiple",
+//     outputs: [],
+//     stateMutability: "nonpayable",
+//     type: "function",
+//   },
+// ] as const;
 
 export default function RiwayatPage() {
-  const { address: userAddress } = useAccount();
+  const { address: userAddress, chain } = useAccount();
   const { writeContractAsync } = useWriteContract();
+
+  const publicClient = usePublicClient();
 
   const [receipts, setReceipts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"pending" | "claimed">("pending");
@@ -75,7 +78,7 @@ export default function RiwayatPage() {
     }
     setClaimingCommunity(contractAddress);
     try {
-      const esp32Address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+      const esp32Address = groupReceipts[0].payload.deviceAddress || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
       const MAX_BATCH_SIZE = 30;
       const receiptsToProcess = groupReceipts.slice(0, MAX_BATCH_SIZE);
 
@@ -98,26 +101,40 @@ export default function RiwayatPage() {
         signatures.push(fullSig);
       }
 
-      await writeContractAsync({
+      const chainId = chain?.id ?? 31337;
+      const contracts = deployedContracts as Record<number, any>;
+      const communityAbi = contracts[chainId].CommunityRVM.abi;
+
+      const txHash = await writeContractAsync({
         address: contractAddress as `0x${string}`,
-        abi: COMMUNITY_ABI,
+        abi: communityAbi, // Gunakan ABI otomatis
         functionName: "claimMultiple",
         args: [plastics, metals, nonces, esp32Address, signatures],
       });
 
-      const claimedIds = receiptsToProcess.map(r => r.id);
-      const updatedReceipts = receipts.map(r => (claimedIds.includes(r.id) ? { ...r, status: "claimed" } : r));
-      setReceipts(updatedReceipts);
-      localStorage.setItem("rvm_receipts", JSON.stringify(updatedReceipts));
+      if (!publicClient) {
+        alert("Koneksi ke jaringan belum siap. Coba lagi sebentar.");
+        return;
+      }
 
-      if (groupReceipts.length > MAX_BATCH_SIZE) {
-        alert(`🎉 Klaim ${MAX_BATCH_SIZE} struk pertama berhasil! Klik lagi untuk sisanya.`);
+      alert("Transaksi terkirim! Menunggu konfirmasi dari jaringan...");
+      const receiptTx = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      if (receiptTx.status === "success") {
+        // 5. BARU DI SINI KITA UPDATE LOCAL STORAGE KARENA SUDAH PASTI BERHASIL
+        const claimedIds = receiptsToProcess.map(r => r.id);
+        const updatedReceipts = receipts.map(r => (claimedIds.includes(r.id) ? { ...r, status: "claimed" } : r));
+
+        setReceipts(updatedReceipts);
+        localStorage.setItem("rvm_receipts", JSON.stringify(updatedReceipts));
+
+        alert(`🎉 Klaim ${receiptsToProcess.length} Struk Berhasil dan telah tercatat di Blockchain!`);
       } else {
-        alert(`🎉 Klaim ${receiptsToProcess.length} Struk Berhasil! Gas sangat hemat.`);
+        throw new Error("Transaksi revert/gagal di blockchain.");
       }
     } catch (err) {
       console.error("Gagal Klaim Batch:", err);
-      alert("Klaim massal gagal. Pastikan saldo Gas Fee (MATIC) cukup.");
+      alert("Klaim massal gagal. Pastikan saldo gas fee cukup atau struk belum pernah diklaim.");
     } finally {
       setClaimingCommunity(null);
     }
